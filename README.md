@@ -86,6 +86,10 @@ storePassword=your_store_password
 [非触屏游戏](https://github.com/nikita36078/J2ME-Loader/wiki/List-of-Tested-Java-Games-(Non-Touchscreen)) ·
 [已知问题游戏](https://github.com/nikita36078/J2ME-Loader/wiki/List-of-Java-Games-with-Bugs)
 
+本项目的功能改动也整理成一份可直接应用的补丁：
+[`patches/hd-supersampling.patch`](patches/hd-supersampling.patch)
+（基于上游 `master` 2026-10-24，17 个文件，已验证可直接 `git apply`）。欢迎上游取用。
+
 上游小贴士：开启图像过滤在部分机型上会明显降低性能，卡顿时可关闭；
 画面闪烁可尝试打开「即时处理模式」。
 
