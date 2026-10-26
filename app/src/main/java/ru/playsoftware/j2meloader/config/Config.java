@@ -26,6 +26,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Environment;
 
 import androidx.annotation.Keep;
@@ -83,9 +84,13 @@ public class Config {
 		SCREENSHOTS_DIR = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
 				+ "/" + appName;
 		SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
-		String path = FileUtils.isExternalStorageLegacy() ?
-				preferences.getString(PREF_EMULATOR_DIR, null) :
-				context.getExternalFilesDir(null).getPath();
+		String path = preferences.getString(PREF_EMULATOR_DIR, null);
+		boolean customDirUsable = path != null &&
+				(FileUtils.isExternalStorageLegacy() || isAllFilesAccessGranted());
+		if (!customDirUsable) {
+			path = FileUtils.isExternalStorageLegacy() ?
+					null : context.getExternalFilesDir(null).getPath();
+		}
 		if (path == null) {
 			path = Environment.getExternalStorageDirectory() + "/" + appName;
 		}
@@ -126,11 +131,15 @@ public class Config {
 	}
 
 	public static String getFsExternalDir() {
-		if (FileUtils.isExternalStorageLegacy()) {
+		// 授予「所有文件访问」后，游戏内的外部存储直接映射到真实 /sdcard
+		if (isAllFilesAccessGranted() || FileUtils.isExternalStorageLegacy()) {
 			return Environment.getExternalStorageDirectory().getPath() + "/";
-		} else {
-			return emulatorDir + FS_DIR + "e/";
 		}
+		return emulatorDir + FS_DIR + "e/";
+	}
+
+	private static boolean isAllFilesAccessGranted() {
+		return Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager();
 	}
 
 	public static void startApp(Context context, String name, String path, boolean showSettings) {

@@ -23,8 +23,10 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
 import android.os.Bundle;
 import android.provider.DocumentsContract;
+import android.provider.Settings;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.appcompat.app.AlertDialog;
@@ -57,14 +59,31 @@ public class SettingsFragment extends PreferenceFragmentCompat {
 		prefFolder = findPreference(PREF_EMULATOR_DIR);
 		prefFolder.setSummary(Config.getEmulatorDir());
 		prefFolder.setOnPreferenceClickListener(preference -> {
-			if (FileUtils.isExternalStorageLegacy()) {
+			if (FileUtils.isExternalStorageLegacy() || isAllFilesAccessGranted()) {
 				openDirLauncher.launch(null);
+			} else {
+				// Android 11+ 分区存储：需要「所有文件访问」权限才能使用自定义目录
+				new androidx.appcompat.app.AlertDialog.Builder(requireActivity())
+						.setTitle(R.string.error)
+						.setMessage("使用自定义工作目录需要授予「所有文件访问」权限，\n点击确定前往系统设置开启。")
+						.setCancelable(false)
+						.setPositiveButton(android.R.string.ok, (d, w) -> {
+							Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+									Uri.parse("package:" + requireContext().getPackageName()));
+							startActivity(intent);
+						})
+						.setNegativeButton(android.R.string.cancel, null)
+						.show();
 			}
 			return true;
 		});
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
 			findPreference(PREF_ADD_CUTOUT_AREA).setVisible(true);
 		}
+	}
+
+	private static boolean isAllFilesAccessGranted() {
+		return Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager();
 	}
 
 	private void openPicker() {

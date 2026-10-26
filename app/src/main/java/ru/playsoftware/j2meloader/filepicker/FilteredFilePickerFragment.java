@@ -18,6 +18,7 @@ package ru.playsoftware.j2meloader.filepicker;
 
 import android.content.Context;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Environment;
 import android.view.LayoutInflater;
 import android.view.ViewGroup;
@@ -37,6 +38,17 @@ import java.util.Stack;
 import ru.playsoftware.j2meloader.R;
 
 public class FilteredFilePickerFragment extends FilePickerFragment {
+
+		/** 库只认旧的 WRITE_EXTERNAL_STORAGE 运行时权限；Android 11+ 上
+		 *  「所有文件访问」(MANAGE_EXTERNAL_STORAGE) 已授予时直接放行，否则会误报权限被拒 */
+		@Override
+		protected boolean hasPermission(@NonNull File path) {
+			if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
+				return true;
+			}
+			return super.hasPermission(path);
+		}
+
 	private static final List<String> extList = Arrays.asList(".jad", ".jar", ".kjx");
 	private static final Stack<File> history = new Stack<>();
 
