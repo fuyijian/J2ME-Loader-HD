@@ -88,8 +88,8 @@ public class Graphics implements
 			// 在第一次 save() 之前应用缩放：reset() 里的 restoreToCount() 天然保留它
 			canvas.scale(pixelScale, pixelScale);
 			// MIDP 规定描边宽 1px（逻辑）。不设的话 Android 默认发丝线只占 1 个设备像素，
-			// 超采样下用 drawLine/drawRect 画的血条/边框会变成半粗的虚线
-			drawPaint.setStrokeWidth(pixelScale);
+			// 注意 strokeWidth 是画布局部单位，会被 scale 放大，写 pixelScale 会变成平方倍（过粗）
+			drawPaint.setStrokeWidth(1f);   // 局部坐标单位，会被 canvas.scale 放大 → 1 = 1 逻辑像素
 		}
 		canvas.save();
 		canvas.clipRect(image.getBounds());
