@@ -1,0 +1,8 @@
+* text=auto
+*.java text
+*.xml text
+*.gradle text
+*.md text
+*.png binary
+*.jar binary
+*.so binary

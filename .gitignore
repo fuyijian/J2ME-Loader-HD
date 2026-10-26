@@ -1,0 +1,22 @@
+# Gradle / Android 构建产物
+.gradle/
+build/
+app/build/
+dexlib/build/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# IDE
+.idea/
+*.iml
+
+# 本机签名（切勿上传私钥）
+*.jks
+*.keystore
+keystore.properties
+
+# 系统杂项
+.DS_Store
+Thumbs.db
