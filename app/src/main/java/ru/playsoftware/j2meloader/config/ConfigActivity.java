@@ -52,6 +52,7 @@ import android.widget.ArrayAdapter;
 import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.ListView;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -125,6 +126,16 @@ public class ConfigActivity extends AppCompatActivity implements View.OnClickLis
 			});
 
 	@SuppressLint({"StringFormatMatches", "StringFormatInvalid"})
+	private static String supersamplingLabel(int v) {
+		if (v <= 0) {
+			return "自动";
+		}
+		if (v == 1) {
+			return "关闭";
+		}
+		return v + "×";
+	}
+
 	@Override
 	public void onCreate(@Nullable Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
@@ -654,7 +665,23 @@ public class ConfigActivity extends AppCompatActivity implements View.OnClickLis
 		binding.fontSizeLarge.setText(Integer.toString(params.fontSizeLarge));
 		binding.showFontSizesInScaledPixelsToggle.setChecked(params.fontApplyDimensions);
 		binding.enableAntiAliasingToggle.setChecked(params.fontAA);
-		binding.enableHdTextToggle.setChecked(params.fontHD);
+		binding.renderScale.setProgress(params.supersampling < 0 ? 0 : params.supersampling);
+		binding.renderScaleValue.setText(supersamplingLabel(binding.renderScale.getProgress()));
+		binding.renderScale.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+			@Override
+			public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+				binding.renderScaleValue.setText(supersamplingLabel(progress));
+			}
+
+			@Override
+			public void onStartTrackingTouch(SeekBar seekBar) {
+			}
+
+			@Override
+			public void onStopTrackingTouch(SeekBar seekBar) {
+			}
+		});
+
 		boolean showVk = params.showKeyboard;
 		binding.showVirtualKeyboardToggle.setChecked(showVk);
 		binding.virtualKeyboardConfigGroup.setVisibility(showVk ? View.VISIBLE : View.GONE);
@@ -734,7 +761,7 @@ public class ConfigActivity extends AppCompatActivity implements View.OnClickLis
 			}
 			params.fontApplyDimensions = binding.showFontSizesInScaledPixelsToggle.isChecked();
 			params.fontAA = binding.enableAntiAliasingToggle.isChecked();
-			params.fontHD = binding.enableHdTextToggle.isChecked();
+			params.supersampling = binding.renderScale.getProgress();
 			params.showKeyboard = binding.showVirtualKeyboardToggle.isChecked();
 			params.vkFeedback = binding.enableHapticFeedbackToggle.isChecked();
 			params.vkForceOpacity = binding.forceOpacityForOffscreenKeysToggle.isChecked();

@@ -120,9 +120,20 @@ public abstract class Canvas extends Displayable {
 
 	private static final float FULLSCREEN_HEIGHT_RATIO = 0.85f;
 
+	/** 自动选择超采样倍率 */
+	public static final int SUPERSAMPLING_AUTO = 0;
+	/** 用户可选的最大倍率 */
+	public static final int MAX_SUPERSAMPLING = 10;
+	/** 单边上限（GLES2 纹理安全值） */
+	private static final int MAX_SUPERSAMPLING_DIMENSION = 4096;
+	/** 总面积上限（约 32MB ARGB_8888） */
+	private static final long MAX_SUPERSAMPLING_PIXELS = 8L * 1024 * 1024;
+
 	private static boolean filter;
 	private static boolean touchInput;
 	private static int graphicsMode;
+	private static int supersampling;
+	private static int mutableScale = 1;
 	private static ShaderInfo shaderFilter;
 	private static boolean parallelRedraw;
 	private static boolean forceFullscreen;
@@ -162,6 +173,8 @@ public abstract class Canvas extends Displayable {
 	private boolean skipLeftSoft;
 	private boolean skipRightSoft;
 	private int[][] lastPointerPos = new int[20][2];
+	/** 屏幕缓冲实际生效的超采样倍率，1 表示未开启 */
+	private int supersamplingFactor = 1;
 
 	protected Canvas() {
 		this(forceFullscreen);
@@ -206,6 +219,23 @@ public abstract class Canvas extends Displayable {
 	public static void setGraphicsMode(int mode, boolean parallel) {
 		Canvas.graphicsMode = mode;
 		Canvas.parallelRedraw = (mode == 0 || mode == 3) && parallel;
+	}
+
+protected int getSupersamplingFactor() {
+		return supersamplingFactor;
+	}
+
+	static int mutableImageScale(int width, int height) {
+		int f = Math.max(1, mutableScale);
+		while (f > 1 && (long) width * height * f * f > MAX_SUPERSAMPLING_PIXELS) {
+			f--;
+		}
+		return f;
+	}
+
+	public static void setSupersampling(int factor) {
+		Canvas.supersampling = Math.max(SUPERSAMPLING_AUTO,
+				Math.min(factor, MAX_SUPERSAMPLING));
 	}
 
 	public static void setForceFullscreen(boolean forceFullscreen) {
@@ -319,8 +349,12 @@ public abstract class Canvas extends Displayable {
 			Bitmap bitmap;
 			if (screenshotRawMode) {
 				synchronized (bufferLock) {
-					bitmap = Bitmap.createBitmap(offscreenCopy.getBitmap(), 0, 0,
-							offscreenCopy.getWidth(), offscreenCopy.getHeight());
+					int scale = supersamplingFactor;
+					int w = offscreenCopy.getWidth();
+					int h = offscreenCopy.getHeight();
+					Bitmap raw = Bitmap.createBitmap(offscreenCopy.getBitmap(), 0, 0,
+							w * scale, h * scale);
+					bitmap = scale > 1 ? Bitmap.createScaledBitmap(raw, w, h, true) : raw;
 				}
 			} else {
 				bitmap = Bitmap.createBitmap(onWidth, onHeight, Bitmap.Config.ARGB_8888);
@@ -331,6 +365,29 @@ public abstract class Canvas extends Displayable {
 			}
 			emitter.onSuccess(bitmap);
 		});
+	}
+
+	/**
+	 * 选择超采样倍率：AUTO 模式按"显示区是逻辑尺寸的几倍"来定，做到接近 1:1 映射。
+	 */
+	private int calculateSupersampling(int width, int height) {
+		if (width <= 0 || height <= 0) {
+			return 1;
+		}
+		int factor;
+		if (supersampling == SUPERSAMPLING_AUTO) {
+			float ratio = Math.max((float) onWidth / width, (float) onHeight / height);
+			factor = Math.round(ratio);
+		} else {
+			factor = supersampling;
+		}
+		factor = Math.max(1, Math.min(factor, MAX_SUPERSAMPLING));
+		while (factor > 1 && (width * factor > MAX_SUPERSAMPLING_DIMENSION
+				|| height * factor > MAX_SUPERSAMPLING_DIMENSION
+				|| (long) width * height * factor * factor > MAX_SUPERSAMPLING_PIXELS)) {
+			factor--;
+		}
+		return factor;
 	}
 
 	private boolean checkSizeChanged() {
@@ -475,15 +532,32 @@ public abstract class Canvas extends Displayable {
 		RectF screen = new RectF(0, 0, displayWidth, displayHeight);
 		virtualScreen.set(onX, onY, onX + onWidth, onY + onHeight);
 
+		int newSupersampling = calculateSupersampling(width, maxHeight);
 		synchronized (bufferLock) {
-			if (offscreen == null) {
-				offscreen = Image.createImage(width, maxHeight, 0);
-				offscreenCopy = Image.createImage(width, maxHeight, 0);
-			}
-			if (offscreen.getWidth() != width || offscreen.getHeight() != height) {
+			if (offscreen == null || offscreen.getPixelScale() != newSupersampling) {
+				while (true) {
+					try {
+						offscreen = Image.createImage(width, maxHeight, 0, newSupersampling);
+						offscreenCopy = Image.createImage(width, maxHeight, 0, newSupersampling);
+						supersamplingFactor = newSupersampling;
+						mutableScale = Math.min(newSupersampling, 3);
+						break;
+					} catch (OutOfMemoryError e) {
+						offscreen = null;
+						offscreenCopy = null;
+						if (newSupersampling <= 1) {
+							throw e;
+						}
+						newSupersampling--;
+						Log.w(TAG, "内存不足，超采样降级为 x" + newSupersampling);
+					}
+				}
+			} else if (offscreen.getWidth() != width || offscreen.getHeight() != height) {
 				offscreen.setSize(width, height);
 				offscreenCopy.setSize(width, height);
 			}
+			// 超采样缓冲必须用双线性缩小，否则会有摩尔纹
+			canvasWrapper.setFilterBitmap(supersamplingFactor > 1 || filter);
 		}
 		if (overlay != null) {
 			overlay.resize(screen, onX, onY, onX + onWidth, onY + onHeight + softBarHeight);
@@ -494,8 +568,8 @@ public abstract class Canvas extends Displayable {
 			float gt = 1.0f - 2.0f * virtualScreen.top / displayHeight;
 			float gr = 2.0f * virtualScreen.right / displayWidth - 1.0f;
 			float gb = 1.0f - 2.0f * virtualScreen.bottom / displayHeight;
-			float th = (float) height / offscreen.getBitmap().getHeight();
-			float tw = (float) width / offscreen.getBitmap().getWidth();
+			float th = (float) height * supersamplingFactor / offscreen.getBitmap().getHeight();
+			float tw = (float) width * supersamplingFactor / offscreen.getBitmap().getWidth();
 			renderer.updateSize(gl, gt, gr, gb, th, tw);
 		}
 		repaintInternal();

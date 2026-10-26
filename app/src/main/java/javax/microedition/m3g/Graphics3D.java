@@ -159,6 +159,12 @@ public class Graphics3D {
 			buffer = finalG.getBitmap();
 			final int width = buffer.getWidth();
 			final int height = buffer.getHeight();
+			// 超采样：缓冲是逻辑尺寸的 ps 倍，视口也要按 ps 缩放，否则 3D 只画在左上角 1/ps 区域
+			final int ps = finalG.getPixelScale();
+			final int vpX = clipX * ps;
+			final int vpY = clipY * ps;
+			final int vpW = clipW * ps;
+			final int vpH = clipH * ps;
 
 			Platform.executeInUIThread(
 					new M3gRunnable() {
@@ -166,7 +172,7 @@ public class Graphics3D {
 						public void doRun() {
 							iIsImageTarget = _bindGraphics(
 									handle, 0, width, height,
-									clipX, clipY, clipW, clipH,
+									vpX, vpY, vpW, vpH,
 									finalDepth, finalFlags, iIsProperRenderer,
 									buffer);
 						}

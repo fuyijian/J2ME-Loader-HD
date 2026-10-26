@@ -545,16 +545,43 @@
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toBottomOf="@+id/show_font_sizes_in_scaled_pixels_toggle" />
-
-            <com.google.android.material.switchmaterial.SwitchMaterial
-                android:id="@+id/enable_hd_text_toggle"
-                style="@style/SwitchStyle"
+            <LinearLayout
+                android:id="@+id/render_scale_row"
                 android:layout_width="0dp"
-                android:layout_height="@dimen/height_config_row"
-                android:text="HD text rendering"
+                android:layout_height="wrap_content"
+                android:layout_marginLeft="16dp"
+                android:layout_marginRight="16dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@+id/enable_anti_aliasing_toggle" />
+                app:layout_constraintTop_toBottomOf="@+id/enable_anti_aliasing_toggle">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="超采样"
+                    android:textColor="?attr/textColorSecondary"
+                    android:textSize="12sp" />
+
+
+                <SeekBar
+                    android:id="@+id/render_scale"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginLeft="8dp"
+                    android:layout_weight="1"
+                    android:max="10" />
+
+                <TextView
+                    android:id="@+id/render_scale_value"
+                    android:layout_width="40dp"
+                    android:layout_height="wrap_content"
+                    android:gravity="end"
+                    android:text="自动"
+                    android:textColor="?attr/textColorSecondary"
+                    android:textSize="12sp" />
+            </LinearLayout>
 
         </androidx.constraintlayout.widget.ConstraintLayout><!-- Font -->
 

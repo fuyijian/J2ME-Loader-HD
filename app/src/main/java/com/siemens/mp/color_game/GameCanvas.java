@@ -31,12 +31,11 @@ public class GameCanvas extends Canvas {
 	public static final int GAME_C_PRESSED = 1 << Canvas.GAME_C;
 	public static final int GAME_D_PRESSED = 1 << Canvas.GAME_D;
 
-	private final Image image;
+	private Image image;
 	private int keyState = 0;
 
 	protected GameCanvas(boolean suppressKeyEvents) throws OutOfMemoryError {
-		image = Image.createImage(width, maxHeight);
-	}
+			}
 
 	public void flushGraphics() {
 		repaint();
@@ -48,8 +47,17 @@ public class GameCanvas extends Canvas {
 		serviceRepaints();
 	}
 
+	private Image image() {
+		int scale = getSupersamplingFactor();
+		if (image == null || image.getPixelScale() != scale
+				|| image.getWidth() != width || image.getHeight() != maxHeight) {
+			image = Image.createImage(width, maxHeight, 0, scale);
+		}
+		return image;
+	}
+
 	protected Graphics getGraphics() {
-		return image.getGraphics();
+		return image().getGraphics();
 	}
 
 	public int getKeyStates() {
@@ -97,6 +105,6 @@ public class GameCanvas extends Canvas {
 	}
 
 	public void paint(Graphics g) {
-		g.drawImage(image, 0, 0, 0);
+		g.drawImage(image(), 0, 0, 0);
 	}
 }

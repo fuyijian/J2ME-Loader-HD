@@ -267,6 +267,7 @@ public class MicroLoader {
 			Canvas.setBackgroundColor(params.screenBackgroundColor);
 			Canvas.setScale(params.screenGravity, params.screenScaleType, params.screenScaleRatio);
 			Canvas.setFilterBitmap(params.screenFilter);
+			Canvas.setSupersampling(params.supersampling);
 			EventQueue.setImmediate(params.immediateMode);
 			Canvas.setGraphicsMode(params.graphicsMode, params.parallelRedrawScreen);
 			ShaderInfo shader = params.shader;

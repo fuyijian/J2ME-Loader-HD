@@ -20,6 +20,7 @@ public class CanvasWrapper {
 	private final Paint fillPaint = new Paint();
 	private final Paint textPaint = new Paint();
 	private final Paint imgPaint = new Paint();
+	private final Rect imgSrc = new Rect();
 	private final float textSize;
 
 	private float textAscent;
@@ -76,16 +77,27 @@ public class CanvasWrapper {
 	public void drawImage(Image image, RectF dst) {
 		Bitmap bitmap = image.getBitmap();
 		bitmap.prepareToDraw();
-		canvas.drawBitmap(bitmap, image.getBounds(), dst, imgPaint);
+		// only the used part of the bitmap is visible, it may be supersampled
+		int scale = image.getPixelScale();
+		imgSrc.set(0, 0, image.getWidth() * scale, image.getHeight() * scale);
+		canvas.drawBitmap(bitmap, imgSrc, dst, imgPaint);
+	}
+
+	/**
+	 * Enables bilinear filtering, which is required to downscale a supersampled
+	 * screen buffer with acceptable quality.
+	 */
+	public void setFilterBitmap(boolean filter) {
+		imgPaint.setFilterBitmap(filter);
+	}
+
+	public void fillRect(RectF rect) {
+		canvas.drawRect(rect, fillPaint);
 	}
 
 	public void drawBitmap(Bitmap bitmap, Rect src, RectF dst) {
 		bitmap.prepareToDraw();
 		canvas.drawBitmap(bitmap, src, dst, imgPaint);
-	}
-
-	public void fillRect(RectF rect) {
-		canvas.drawRect(rect, fillPaint);
 	}
 
 	public void drawRect(RectF rect) {

@@ -54,6 +54,8 @@ public class Graphics implements
 	public static final int DOTTED = 1;
 
 	private final Canvas canvas;
+	/** 该 Image 的超采样倍率（1 = 普通） */
+	private final int pixelScale;
 	private final Image image;
 
 	private final Paint drawPaint = new Paint();
@@ -66,22 +68,29 @@ public class Graphics implements
 	private final Rect rect = new Rect();
 	private final RectF rectF = new RectF();
 	private final Path path = new Path();
+	/** 复用，避免每次 drawRegion 分配对象（精灵多的游戏每帧几十上百次） */
+	private final Matrix matrix = new Matrix();
+	/** copyArea 在超采样下的暂存位图（避免自我拷贝 + 每次分配） */
+	private Bitmap copyScratch;
+	private final Canvas scratchCanvas = new Canvas();
+	private final Rect rectZero = new Rect();
 
 	private final DashPathEffect dashPathEffect = new DashPathEffect(new float[]{5, 5}, 0);
 	private int stroke = SOLID;
 
 	private Font font = Font.getDefaultFont();
 
-	// ---- HD text rendering 用到的复用缓冲（避免每帧分配） ----
-	private Bitmap hdBuffer;
-	private Canvas hdCanvas;
-	private final Paint hdFilterPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
-	private final Rect hdSrc = new Rect();
-	private final Rect hdDst = new Rect();
-
 	Graphics(Image image) {
 		this.image = image;
+		pixelScale = image.getPixelScale();
 		canvas = new Canvas(image.getBitmap());
+		if (pixelScale > 1) {
+			// 在第一次 save() 之前应用缩放：reset() 里的 restoreToCount() 天然保留它
+			canvas.scale(pixelScale, pixelScale);
+			// MIDP 规定描边宽 1px（逻辑）。不设的话 Android 默认发丝线只占 1 个设备像素，
+			// 超采样下用 drawLine/drawRect 画的血条/边框会变成半粗的虚线
+			drawPaint.setStrokeWidth(pixelScale);
+		}
 		canvas.save();
 		canvas.clipRect(image.getBounds());
 		canvas.getClipBounds(clip);
@@ -101,6 +110,10 @@ public class Graphics implements
 		canvas.getClipBounds(this.clip);
 		translateX = 0;
 		translateY = 0;
+	}
+
+	public int getPixelScale() {
+		return pixelScale;
 	}
 
 	public Canvas getCanvas() {
@@ -251,6 +264,19 @@ public class Graphics implements
 	}
 
 	public void drawLine(int x1, int y1, int x2, int y2) {
+		if (pixelScale > 1) {
+			// J2ME 语义：线包含两端点。轴对齐线用填充矩形精确覆盖 1 逻辑像素，
+			// 避免"终点+1 的斜线段 + N 宽描边"跨 2~3 行造成色带
+			if (y1 == y2) {
+				canvas.drawRect(Math.min(x1, x2), y1, Math.max(x1, x2) + 1, y1 + 1, fillPaint);
+				return;
+			}
+			if (x1 == x2) {
+				canvas.drawRect(x1, Math.min(y1, y2), x1 + 1, Math.max(y1, y2) + 1, fillPaint);
+				return;
+			}
+			// 斜线保持描边绘制（宽度 = pixelScale，在构造里设置）
+		}
 		if (x2 >= x1) {
 			x2++;
 		} else {
@@ -280,6 +306,16 @@ public class Graphics implements
 
 	public void drawRect(int x, int y, int width, int height) {
 		if (width < 0 || height < 0) return;
+		if (pixelScale > 1) {
+			// 精确的 MIDP 外框：1 逻辑像素宽的边，全部落在 w+1 x h+1 的像素范围内
+			int r = x + width + 1;
+			int b = y + height + 1;
+			canvas.drawRect(x, y, r, y + 1, fillPaint);
+			canvas.drawRect(x, b - 1, r, b, fillPaint);
+			canvas.drawRect(x, y, x + 1, b, fillPaint);
+			canvas.drawRect(r - 1, y, r, b, fillPaint);
+			return;
+		}
 		canvas.drawRect(x, y, x + width, y + height, drawPaint);
 	}
 
@@ -330,11 +366,7 @@ public class Graphics implements
 		}
 
 		paint.setColor(fillPaint.getColor());
-		if (Font.hdScale > 1) {
-			drawCharsHd(data, offset, length, x, ly);
-		} else {
-			canvas.drawText(data, offset, length, x, ly, paint);
-		}
+		canvas.drawText(data, offset, length, x, ly, paint);
 	}
 
 	public void drawString(String text, int x, int y, int anchor) {
@@ -359,86 +391,7 @@ public class Graphics implements
 		}
 
 		paint.setColor(fillPaint.getColor());
-		if (Font.hdScale > 1) {
-			drawStringHd(text, 0, text.length(), x, ly);
-		} else {
-			canvas.drawText(text, x, ly, paint);
-		}
-	}
-
-	/**
-	 * HD 文字绘制：先把文字画进一张 {@code hdScale} 倍大的透明位图（字号同步放大、
-	 * 强制抗锯齿），再用 FILTER_BITMAP 降采样合成回目标画布。
-	 *
-	 * <p>排版位置始终用 1x 的 {@link Font#paint} 度量，保证字距、对齐与关闭 HD 时完全一致。
-	 */
-	private void drawCharsHd(char[] data, int offset, int length, float x, float baseline) {
-		if (length <= 0) return;
-		final int scale = Font.hdScale;
-		int w = (int) Math.ceil(font.paint.measureText(data, offset, length));
-		int h = font.getHeight();
-		if (w <= 0 || h <= 0) return;
-
-		float left = x;
-		Paint.Align align = font.paint.getTextAlign();
-		if (align == Paint.Align.RIGHT) {
-			left = x - w;
-		} else if (align == Paint.Align.CENTER) {
-			left = x - w / 2f;
-		}
-		float top = baseline + font.ascent;
-
-		Bitmap buf = obtainHdBuffer(w * scale, h * scale);
-		buf.eraseColor(0);
-		hdCanvas.setBitmap(buf);
-		hdCanvas.drawText(data, offset, length, 0, (baseline - top) * scale, font.hdPaint);
-
-		blitHd(buf, w, h, left, top, scale);
-	}
-
-	private void drawStringHd(String text, int start, int end, float x, float baseline) {
-		if (end <= start) return;
-		final int scale = Font.hdScale;
-		int w = (int) Math.ceil(font.paint.measureText(text, start, end));
-		int h = font.getHeight();
-		if (w <= 0 || h <= 0) return;
-
-		float left = x;
-		Paint.Align align = font.paint.getTextAlign();
-		if (align == Paint.Align.RIGHT) {
-			left = x - w;
-		} else if (align == Paint.Align.CENTER) {
-			left = x - w / 2f;
-		}
-		float top = baseline + font.ascent;
-
-		Bitmap buf = obtainHdBuffer(w * scale, h * scale);
-		buf.eraseColor(0);
-		hdCanvas.setBitmap(buf);
-		hdCanvas.drawText(text, start, end, 0, (baseline - top) * scale, font.hdPaint);
-
-		blitHd(buf, w, h, left, top, scale);
-	}
-
-	private void blitHd(Bitmap buf, int w, int h, float left, float top, int scale) {
-		hdSrc.set(0, 0, w * scale, h * scale);
-		int l = Math.round(left);
-		int t = Math.round(top);
-		hdDst.set(l, t, l + w, t + h);
-		canvas.drawBitmap(buf, hdSrc, hdDst, hdFilterPaint);
-	}
-
-	/** 复用一张 64 对齐的暂存位图；尺寸不够时才重新分配。 */
-	private Bitmap obtainHdBuffer(int w, int h) {
-		if (hdBuffer == null || hdBuffer.getWidth() < w || hdBuffer.getHeight() < h) {
-			int bw = hdBuffer == null ? 0 : hdBuffer.getWidth();
-			int bh = hdBuffer == null ? 0 : hdBuffer.getHeight();
-			bw = Math.max(bw, (w + 63) & ~63);
-			bh = Math.max(bh, (h + 63) & ~63);
-			hdBuffer = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
-			hdCanvas = new Canvas(hdBuffer);
-		}
-		return hdBuffer;
+		canvas.drawText(text, x, ly, paint);
 	}
 
 	public void drawImage(Image image, int x, int y, int anchor) {
@@ -460,7 +413,16 @@ public class Graphics implements
 			ly = y;
 		}
 
-		canvas.drawBitmap(image.getBitmap(), lx, ly, null);
+		Bitmap bitmap = image.getBitmap();
+		int imageScale = image.getPixelScale();
+		if (imageScale == 1) {
+			canvas.drawBitmap(bitmap, lx, ly, null);
+		} else {
+			// 超采样图像占据的是逻辑区域，不是位图区域
+			rect.set(0, 0, image.getWidth() * imageScale, image.getHeight() * imageScale);
+			rectF.set(lx, ly, lx + image.getWidth(), ly + image.getHeight());
+			canvas.drawBitmap(bitmap, rect, rectF, null);
+		}
 	}
 
 	public void drawSubstring(String str, int offset, int len, int x, int y, int anchor) {
@@ -485,11 +447,7 @@ public class Graphics implements
 		}
 
 		paint.setColor(fillPaint.getColor());
-		if (Font.hdScale > 1) {
-			drawStringHd(str, offset, offset + len, x, ly);
-		} else {
-			canvas.drawText(str, offset, offset + len, x, ly, paint);
-		}
+		canvas.drawText(str, offset, offset + len, x, ly, paint);
 	}
 
 	public void drawRegion(Image image, int x_src, int y_src, int width, int height,
@@ -500,9 +458,12 @@ public class Graphics implements
 		RectF dstR = rectF;
 		float dx;
 		float dy;
-		srcR.set(x_src, y_src, x_src + width, y_src + height);
+		int imageScale = image.getPixelScale();
+		srcR.set(x_src * imageScale, y_src * imageScale,
+				(x_src + width) * imageScale, (y_src + height) * imageScale);
 
-		Matrix matrix = new Matrix();
+		Matrix matrix = this.matrix;
+		matrix.reset();
 		switch (transform) {
 			case TRANS_NONE: {
 				if ((anchor & Graphics.RIGHT) != 0) {
@@ -619,14 +580,15 @@ public class Graphics implements
 			}
 		}
 		// Use deprecated method due to performance issues
-		canvas.drawBitmap(pixels, 0, width, x, y, width, height, true, null);
+		// Canvas.drawBitmap(int[], ...) 在部分 Android 上会忽略 canvas 变换，
+		// 改用 Bitmap 形式，位置与 drawImage 一致
+		Bitmap tile = Bitmap.createBitmap(pixels, 0, width, width, height, Bitmap.Config.ARGB_8888);
+		canvas.drawBitmap(tile, x, y, null);
 	}
 
 	public void copyArea(int x_src, int y_src, int width, int height,
 						 int x_dest, int y_dest, int anchor) {
 		if (width <= 0 || height <= 0) return;
-		final int[] pixels = new int[width * height];
-		image.getBitmap().getPixels(pixels, 0, width, x_src, y_src, width, height);
 		float dx;
 		if ((anchor & Graphics.RIGHT) != 0) {
 			dx = x_dest - width;
@@ -643,14 +605,50 @@ public class Graphics implements
 		} else {
 			dy = y_dest;
 		}
+		if (pixelScale > 1) {
+			/*
+			 * 超采样：源区域是位图里的 ps 倍物理像素，目标仍是逻辑坐标。
+			 * 先拷到暂存位图（避免同一张位图的自我拷贝），再按逻辑矩形贴回，
+			 * 否则地图滚动这类"整屏平移"会错位并被异常放大。
+			 */
+			int w = width * pixelScale;
+			int h = height * pixelScale;
+			if (copyScratch == null || copyScratch.getWidth() < w || copyScratch.getHeight() < h) {
+				Bitmap old = copyScratch;
+				copyScratch = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+				if (old != null) {
+					old.recycle();
+				}
+			}
+			rect.set(x_src * pixelScale, y_src * pixelScale,
+					x_src * pixelScale + w, y_src * pixelScale + h);
+			rectF.set(0, 0, w, h);
+			scratchCanvas.setBitmap(copyScratch);
+			scratchCanvas.drawBitmap(image.getBitmap(), rect, rectF, null);
+
+			rectZero.set(0, 0, w, h);
+			rectF.set(dx, dy, dx + width, dy + height);
+			canvas.drawBitmap(copyScratch, rectZero, rectF, null);
+			return;
+		}
+		final int[] pixels = new int[width * height];
+		image.getBitmap().getPixels(pixels, 0, width, x_src, y_src, width, height);
 		canvas.drawBitmap(pixels, 0, width, dx, dy, width, height, false, null);
 	}
 
 	public void getPixels(int[] pixels, int offset, int stride,
 						  int x, int y, int width, int height) {
 		Bitmap b = image.getBitmap();
-		int w = Math.min(width, b.getWidth() - x);
-		int h = Math.min(height, b.getHeight() - y);
+		int w = Math.min(width, image.getWidth() - x);
+		int h = Math.min(height, image.getHeight() - y);
+		if (pixelScale > 1) {
+			// the caller expects logical pixels, so the supersampled area is scaled down
+			Bitmap area = Bitmap.createBitmap(b, x * pixelScale, y * pixelScale,
+					w * pixelScale, h * pixelScale);
+			Bitmap scaled = Bitmap.createScaledBitmap(area, w, h, true);
+			scaled.getPixels(pixels, offset, stride, 0, 0, w, h);
+			return;
+		}
 		b.getPixels(pixels, offset, stride, x, y, w, h);
 	}
 
@@ -659,6 +657,15 @@ public class Graphics implements
 	}
 
 	void flush(Image image, int x, int y, int width, int height) {
+		int srcScale = image.getPixelScale();
+		if (srcScale > 1) {
+			// 源图是超采样的：取对应的物理区域，贴到逻辑区域
+			Rect src = new Rect(x * srcScale, y * srcScale,
+					(x + width) * srcScale, (y + height) * srcScale);
+			rectF.set(x, y, x + width, y + height);
+			canvas.drawBitmap(image.getBitmap(), src, rectF, null);
+			return;
+		}
 		rect.set(x, y, x + width, y + height);
 		canvas.drawBitmap(image.getBitmap(), rect, rect, null);
 	}

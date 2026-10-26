@@ -47,9 +47,6 @@ public class Font {
 	public static final int FONT_STATIC_TEXT = 0;
 	public static final int FONT_INPUT_TEXT = 1;
 
-	/** HD 文字固定 3 倍超采样（240x320 帧缓冲下性价比最好）。 */
-	static final int HD_SCALE_FACTOR = 3;
-
 	private static final int[] SCREEN_SIZES = {128, 176, 220, 320};
 	private static final int[] FONT_SIZES = {
 			9, 13, 15, // 128
@@ -64,12 +61,7 @@ public class Font {
 
 	private static boolean antiAlias;
 
-	/** HD 文字超采样倍率：1 = 关闭。由 ProfileModel.fontHD 控制。 */
-	static int hdScale = 1;
-
 	final Paint paint = new Paint();
-	/** 高分辨率绘制用的画笔：字号放大 hdScale 倍、强制开抗锯齿。 */
-	final Paint hdPaint = new Paint();
 	final float ascent;
 	final float descent;
 	private final int height;
@@ -110,12 +102,6 @@ public class Font {
 		this.height = (int) Math.ceil(paint.getFontMetrics(fm));
 		this.ascent = fm.ascent;
 		this.descent = fm.descent;
-
-		// HD 画笔：除了字号×倍率、强制抗锯齿、左对齐，其余与 1x 画笔一致
-		hdPaint.set(paint);
-		hdPaint.setTextAlign(Paint.Align.LEFT);
-		hdPaint.setAntiAlias(true);
-		hdPaint.setTextSize(paint.getTextSize() * hdScale);
 	}
 
 	public static Font getFont(int fontSpecifier) {
@@ -193,7 +179,6 @@ public class Font {
 
 	public static void applySettings(ProfileModel params) {
 		antiAlias = params.fontAA;
-		hdScale = params.fontHD ? HD_SCALE_FACTOR : 1;
 
 		float small = params.fontSizeSmall;
 		float medium = params.fontSizeMedium;

@@ -32,7 +32,7 @@ public class GameCanvas extends Canvas {
 	public static final int GAME_C_PRESSED = 1 << Canvas.GAME_C;
 	public static final int GAME_D_PRESSED = 1 << Canvas.GAME_D;
 
-	private final Image image;
+	private Image image;
 	private final boolean suppressCommands;
 
 	private int keyState;
@@ -41,12 +41,24 @@ public class GameCanvas extends Canvas {
 	public GameCanvas(boolean suppressCommands) {
 		super();
 		this.suppressCommands = suppressCommands;
-		image = Image.createImage(width, maxHeight);
 	}
 
 	@Override
 	public void paint(Graphics g) {
-		g.drawImage(image, 0, 0, Graphics.LEFT | Graphics.TOP);
+		g.drawImage(image(), 0, 0, Graphics.LEFT | Graphics.TOP);
+	}
+
+	/**
+	 * GameCanvas 自己维护一块绘制缓冲。这里必须跟屏幕用同样的超采样倍率，
+	 * 否则游戏内容（含文字）会先被光栅化到 1x 缓冲里，超采样就只作用在最后一次贴图上。
+	 */
+	private Image image() {
+		int scale = getSupersamplingFactor();
+		if (image == null || image.getPixelScale() != scale
+				|| image.getWidth() != width || image.getHeight() != maxHeight) {
+			image = Image.createImage(width, maxHeight, 0, scale);
+		}
+		return image;
 	}
 
 	private int convertGameKeyCode(int keyCode) {
@@ -125,7 +137,7 @@ public class GameCanvas extends Canvas {
 	}
 
 	public Graphics getGraphics() {
-		return image.getGraphics();
+		return image().getGraphics();
 	}
 
 	@SuppressWarnings("unused")
@@ -135,7 +147,7 @@ public class GameCanvas extends Canvas {
 
 	@SuppressWarnings("WeakerAccess")
 	public void flushGraphics(int x, int y, int width, int height) {
-		flushBuffer(image, x, y, width, height);
+		flushBuffer(image(), x, y, width, height);
 	}
 
 	@Override

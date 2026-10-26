@@ -107,9 +107,9 @@ public class ProfileModel {
 	@SerializedName("FontAntiAlias")
 	public boolean fontAA;
 
-	/** HD text rendering：文字按 3x 分辨率绘制后降采样，字形更锐利。 */
-	@SerializedName("FontHDText")
-	public boolean fontHD;
+	/** 虚拟屏幕超采样倍率：0 = 自动（按屏幕分辨率），1 = 关闭，2..10 = 指定倍率。 */
+	@SerializedName("Supersampling")
+	public int supersampling = 0;
 
 	@SerializedName("TouchInput")
 	public boolean touchInput;
