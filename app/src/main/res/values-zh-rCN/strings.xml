@@ -169,8 +169,6 @@
     <string name="pref_enable_statusbar_title">启用状态栏</string>
     <string name="pref_wakelock_title">保持屏幕常亮</string>
     <string name="pref_vibration_title">开启振动</string>
-    <string name="pref_game_speed_title">游戏速度</string>
-    <string name="pref_game_speed_summary">加速游戏内时间（2×/3×/4×）。修改后需重新导入游戏才生效。</string>
     <string name="pref_button_shape_title">按钮形状</string>
     <string name="pref_button_shape_oval">椭圆形</string>
     <string name="pref_button_shape_rect">矩形</string>
