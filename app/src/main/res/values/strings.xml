@@ -207,6 +207,8 @@
     <string name="pref_add_cutout_area_title">Add cutout area</string>
     <string name="pref_wakelock_title">Keep screen on</string>
     <string name="pref_vibration_title">Enable vibration</string>
+    <string name="pref_game_speed_title">Game speed</string>
+    <string name="pref_game_speed_summary">Accelerate in-game time (2×/3×/4×). Re-import the game to take effect.</string>
     <string name="pref_button_shape_title">Button shape</string>
     <string name="pref_button_shape_oval">Oval</string>
     <string name="pref_button_shape_rect">Rectangle</string>
