@@ -1,0 +1,1020 @@
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index c3e8295..91fd7ba 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -8,6 +8,7 @@
+     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+     <uses-permission android:name="android.permission.VIBRATE" />
+     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
++    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+     <uses-permission android:name="android.permission.INTERNET" />
+diff --git a/app/src/main/java/com/siemens/mp/color_game/GameCanvas.java b/app/src/main/java/com/siemens/mp/color_game/GameCanvas.java
+index f1c8059..a9d04d5 100644
+--- a/app/src/main/java/com/siemens/mp/color_game/GameCanvas.java
++++ b/app/src/main/java/com/siemens/mp/color_game/GameCanvas.java
+@@ -31,12 +31,11 @@ public class GameCanvas extends Canvas {
+ 	public static final int GAME_C_PRESSED = 1 << Canvas.GAME_C;
+ 	public static final int GAME_D_PRESSED = 1 << Canvas.GAME_D;
+ 
+-	private final Image image;
++	private Image image;
+ 	private int keyState = 0;
+ 
+ 	protected GameCanvas(boolean suppressKeyEvents) throws OutOfMemoryError {
+-		image = Image.createImage(width, maxHeight);
+-	}
++			}
+ 
+ 	public void flushGraphics() {
+ 		repaint();
+@@ -48,8 +47,17 @@ public class GameCanvas extends Canvas {
+ 		serviceRepaints();
+ 	}
+ 
++	private Image image() {
++		int scale = getSupersamplingFactor();
++		if (image == null || image.getPixelScale() != scale
++				|| image.getWidth() != width || image.getHeight() != maxHeight) {
++			image = Image.createImage(width, maxHeight, 0, scale);
++		}
++		return image;
++	}
++
+ 	protected Graphics getGraphics() {
+-		return image.getGraphics();
++		return image().getGraphics();
+ 	}
+ 
+ 	public int getKeyStates() {
+@@ -97,6 +105,6 @@ public class GameCanvas extends Canvas {
+ 	}
+ 
+ 	public void paint(Graphics g) {
+-		g.drawImage(image, 0, 0, 0);
++		g.drawImage(image(), 0, 0, 0);
+ 	}
+ }
+diff --git a/app/src/main/java/javax/microedition/lcdui/Canvas.java b/app/src/main/java/javax/microedition/lcdui/Canvas.java
+index f37f346..21e2ef3 100644
+--- a/app/src/main/java/javax/microedition/lcdui/Canvas.java
++++ b/app/src/main/java/javax/microedition/lcdui/Canvas.java
+@@ -120,9 +120,20 @@ public abstract class Canvas extends Displayable {
+ 
+ 	private static final float FULLSCREEN_HEIGHT_RATIO = 0.85f;
+ 
++	/** 自动选择超采样倍率 */
++	public static final int SUPERSAMPLING_AUTO = 0;
++	/** 用户可选的最大倍率 */
++	public static final int MAX_SUPERSAMPLING = 10;
++	/** 单边上限（GLES2 纹理安全值） */
++	private static final int MAX_SUPERSAMPLING_DIMENSION = 4096;
++	/** 总面积上限（约 32MB ARGB_8888） */
++	private static final long MAX_SUPERSAMPLING_PIXELS = 8L * 1024 * 1024;
++
+ 	private static boolean filter;
+ 	private static boolean touchInput;
+ 	private static int graphicsMode;
++	private static int supersampling;
++	private static int mutableScale = 1;
+ 	private static ShaderInfo shaderFilter;
+ 	private static boolean parallelRedraw;
+ 	private static boolean forceFullscreen;
+@@ -162,6 +173,8 @@ public abstract class Canvas extends Displayable {
+ 	private boolean skipLeftSoft;
+ 	private boolean skipRightSoft;
+ 	private int[][] lastPointerPos = new int[20][2];
++	/** 屏幕缓冲实际生效的超采样倍率，1 表示未开启 */
++	private int supersamplingFactor = 1;
+ 
+ 	protected Canvas() {
+ 		this(forceFullscreen);
+@@ -208,6 +221,23 @@ public abstract class Canvas extends Displayable {
+ 		Canvas.parallelRedraw = (mode == 0 || mode == 3) && parallel;
+ 	}
+ 
++protected int getSupersamplingFactor() {
++		return supersamplingFactor;
++	}
++
++	static int mutableImageScale(int width, int height) {
++		int f = Math.max(1, mutableScale);
++		while (f > 1 && (long) width * height * f * f > MAX_SUPERSAMPLING_PIXELS) {
++			f--;
++		}
++		return f;
++	}
++
++	public static void setSupersampling(int factor) {
++		Canvas.supersampling = Math.max(SUPERSAMPLING_AUTO,
++				Math.min(factor, MAX_SUPERSAMPLING));
++	}
++
+ 	public static void setForceFullscreen(boolean forceFullscreen) {
+ 		Canvas.forceFullscreen = forceFullscreen;
+ 	}
+@@ -319,8 +349,12 @@ public abstract class Canvas extends Displayable {
+ 			Bitmap bitmap;
+ 			if (screenshotRawMode) {
+ 				synchronized (bufferLock) {
+-					bitmap = Bitmap.createBitmap(offscreenCopy.getBitmap(), 0, 0,
+-							offscreenCopy.getWidth(), offscreenCopy.getHeight());
++					int scale = supersamplingFactor;
++					int w = offscreenCopy.getWidth();
++					int h = offscreenCopy.getHeight();
++					Bitmap raw = Bitmap.createBitmap(offscreenCopy.getBitmap(), 0, 0,
++							w * scale, h * scale);
++					bitmap = scale > 1 ? Bitmap.createScaledBitmap(raw, w, h, true) : raw;
+ 				}
+ 			} else {
+ 				bitmap = Bitmap.createBitmap(onWidth, onHeight, Bitmap.Config.ARGB_8888);
+@@ -333,6 +367,29 @@ public abstract class Canvas extends Displayable {
+ 		});
+ 	}
+ 
++	/**
++	 * 选择超采样倍率：AUTO 模式按"显示区是逻辑尺寸的几倍"来定，做到接近 1:1 映射。
++	 */
++	private int calculateSupersampling(int width, int height) {
++		if (width <= 0 || height <= 0) {
++			return 1;
++		}
++		int factor;
++		if (supersampling == SUPERSAMPLING_AUTO) {
++			float ratio = Math.max((float) onWidth / width, (float) onHeight / height);
++			factor = Math.round(ratio);
++		} else {
++			factor = supersampling;
++		}
++		factor = Math.max(1, Math.min(factor, MAX_SUPERSAMPLING));
++		while (factor > 1 && (width * factor > MAX_SUPERSAMPLING_DIMENSION
++				|| height * factor > MAX_SUPERSAMPLING_DIMENSION
++				|| (long) width * height * factor * factor > MAX_SUPERSAMPLING_PIXELS)) {
++			factor--;
++		}
++		return factor;
++	}
++
+ 	private boolean checkSizeChanged() {
+ 		int tmpWidth = width;
+ 		int tmpHeight = height;
+@@ -475,15 +532,32 @@ public abstract class Canvas extends Displayable {
+ 		RectF screen = new RectF(0, 0, displayWidth, displayHeight);
+ 		virtualScreen.set(onX, onY, onX + onWidth, onY + onHeight);
+ 
++		int newSupersampling = calculateSupersampling(width, maxHeight);
+ 		synchronized (bufferLock) {
+-			if (offscreen == null) {
+-				offscreen = Image.createImage(width, maxHeight, 0);
+-				offscreenCopy = Image.createImage(width, maxHeight, 0);
+-			}
+-			if (offscreen.getWidth() != width || offscreen.getHeight() != height) {
++			if (offscreen == null || offscreen.getPixelScale() != newSupersampling) {
++				while (true) {
++					try {
++						offscreen = Image.createImage(width, maxHeight, 0, newSupersampling);
++						offscreenCopy = Image.createImage(width, maxHeight, 0, newSupersampling);
++						supersamplingFactor = newSupersampling;
++						mutableScale = Math.min(newSupersampling, 3);
++						break;
++					} catch (OutOfMemoryError e) {
++						offscreen = null;
++						offscreenCopy = null;
++						if (newSupersampling <= 1) {
++							throw e;
++						}
++						newSupersampling--;
++						Log.w(TAG, "内存不足，超采样降级为 x" + newSupersampling);
++					}
++				}
++			} else if (offscreen.getWidth() != width || offscreen.getHeight() != height) {
+ 				offscreen.setSize(width, height);
+ 				offscreenCopy.setSize(width, height);
+ 			}
++			// 超采样缓冲必须用双线性缩小，否则会有摩尔纹
++			canvasWrapper.setFilterBitmap(supersamplingFactor > 1 || filter);
+ 		}
+ 		if (overlay != null) {
+ 			overlay.resize(screen, onX, onY, onX + onWidth, onY + onHeight + softBarHeight);
+@@ -494,8 +568,8 @@ public abstract class Canvas extends Displayable {
+ 			float gt = 1.0f - 2.0f * virtualScreen.top / displayHeight;
+ 			float gr = 2.0f * virtualScreen.right / displayWidth - 1.0f;
+ 			float gb = 1.0f - 2.0f * virtualScreen.bottom / displayHeight;
+-			float th = (float) height / offscreen.getBitmap().getHeight();
+-			float tw = (float) width / offscreen.getBitmap().getWidth();
++			float th = (float) height * supersamplingFactor / offscreen.getBitmap().getHeight();
++			float tw = (float) width * supersamplingFactor / offscreen.getBitmap().getWidth();
+ 			renderer.updateSize(gl, gt, gr, gb, th, tw);
+ 		}
+ 		repaintInternal();
+diff --git a/app/src/main/java/javax/microedition/lcdui/Graphics.java b/app/src/main/java/javax/microedition/lcdui/Graphics.java
+index c52dbee..fc4493f 100644
+--- a/app/src/main/java/javax/microedition/lcdui/Graphics.java
++++ b/app/src/main/java/javax/microedition/lcdui/Graphics.java
+@@ -54,6 +54,8 @@ public class Graphics implements
+ 	public static final int DOTTED = 1;
+ 
+ 	private final Canvas canvas;
++	/** 该 Image 的超采样倍率（1 = 普通） */
++	private final int pixelScale;
+ 	private final Image image;
+ 
+ 	private final Paint drawPaint = new Paint();
+@@ -66,6 +68,12 @@ public class Graphics implements
+ 	private final Rect rect = new Rect();
+ 	private final RectF rectF = new RectF();
+ 	private final Path path = new Path();
++	/** 复用，避免每次 drawRegion 分配对象（精灵多的游戏每帧几十上百次） */
++	private final Matrix matrix = new Matrix();
++	/** copyArea 在超采样下的暂存位图（避免自我拷贝 + 每次分配） */
++	private Bitmap copyScratch;
++	private final Canvas scratchCanvas = new Canvas();
++	private final Rect rectZero = new Rect();
+ 
+ 	private final DashPathEffect dashPathEffect = new DashPathEffect(new float[]{5, 5}, 0);
+ 	private int stroke = SOLID;
+@@ -74,7 +82,15 @@ public class Graphics implements
+ 
+ 	Graphics(Image image) {
+ 		this.image = image;
++		pixelScale = image.getPixelScale();
+ 		canvas = new Canvas(image.getBitmap());
++		if (pixelScale > 1) {
++			// 在第一次 save() 之前应用缩放：reset() 里的 restoreToCount() 天然保留它
++			canvas.scale(pixelScale, pixelScale);
++			// MIDP 规定描边宽 1px（逻辑）。不设的话 Android 默认发丝线只占 1 个设备像素，
++			// 注意 strokeWidth 是画布局部单位，会被 scale 放大，写 pixelScale 会变成平方倍（过粗）
++			drawPaint.setStrokeWidth(1f);   // 局部坐标单位，会被 canvas.scale 放大 → 1 = 1 逻辑像素
++		}
+ 		canvas.save();
+ 		canvas.clipRect(image.getBounds());
+ 		canvas.getClipBounds(clip);
+@@ -96,6 +112,10 @@ public class Graphics implements
+ 		translateY = 0;
+ 	}
+ 
++	public int getPixelScale() {
++		return pixelScale;
++	}
++
+ 	public Canvas getCanvas() {
+ 		return canvas;
+ 	}
+@@ -244,6 +264,19 @@ public class Graphics implements
+ 	}
+ 
+ 	public void drawLine(int x1, int y1, int x2, int y2) {
++		if (pixelScale > 1) {
++			// J2ME 语义：线包含两端点。轴对齐线用填充矩形精确覆盖 1 逻辑像素，
++			// 避免"终点+1 的斜线段 + N 宽描边"跨 2~3 行造成色带
++			if (y1 == y2) {
++				canvas.drawRect(Math.min(x1, x2), y1, Math.max(x1, x2) + 1, y1 + 1, fillPaint);
++				return;
++			}
++			if (x1 == x2) {
++				canvas.drawRect(x1, Math.min(y1, y2), x1 + 1, Math.max(y1, y2) + 1, fillPaint);
++				return;
++			}
++			// 斜线保持描边绘制（宽度 = pixelScale，在构造里设置）
++		}
+ 		if (x2 >= x1) {
+ 			x2++;
+ 		} else {
+@@ -273,6 +306,16 @@ public class Graphics implements
+ 
+ 	public void drawRect(int x, int y, int width, int height) {
+ 		if (width < 0 || height < 0) return;
++		if (pixelScale > 1) {
++			// 精确的 MIDP 外框：1 逻辑像素宽的边，全部落在 w+1 x h+1 的像素范围内
++			int r = x + width + 1;
++			int b = y + height + 1;
++			canvas.drawRect(x, y, r, y + 1, fillPaint);
++			canvas.drawRect(x, b - 1, r, b, fillPaint);
++			canvas.drawRect(x, y, x + 1, b, fillPaint);
++			canvas.drawRect(r - 1, y, r, b, fillPaint);
++			return;
++		}
+ 		canvas.drawRect(x, y, x + width, y + height, drawPaint);
+ 	}
+ 
+@@ -370,7 +413,16 @@ public class Graphics implements
+ 			ly = y;
+ 		}
+ 
+-		canvas.drawBitmap(image.getBitmap(), lx, ly, null);
++		Bitmap bitmap = image.getBitmap();
++		int imageScale = image.getPixelScale();
++		if (imageScale == 1) {
++			canvas.drawBitmap(bitmap, lx, ly, null);
++		} else {
++			// 超采样图像占据的是逻辑区域，不是位图区域
++			rect.set(0, 0, image.getWidth() * imageScale, image.getHeight() * imageScale);
++			rectF.set(lx, ly, lx + image.getWidth(), ly + image.getHeight());
++			canvas.drawBitmap(bitmap, rect, rectF, null);
++		}
+ 	}
+ 
+ 	public void drawSubstring(String str, int offset, int len, int x, int y, int anchor) {
+@@ -406,9 +458,12 @@ public class Graphics implements
+ 		RectF dstR = rectF;
+ 		float dx;
+ 		float dy;
+-		srcR.set(x_src, y_src, x_src + width, y_src + height);
++		int imageScale = image.getPixelScale();
++		srcR.set(x_src * imageScale, y_src * imageScale,
++				(x_src + width) * imageScale, (y_src + height) * imageScale);
+ 
+-		Matrix matrix = new Matrix();
++		Matrix matrix = this.matrix;
++		matrix.reset();
+ 		switch (transform) {
+ 			case TRANS_NONE: {
+ 				if ((anchor & Graphics.RIGHT) != 0) {
+@@ -525,14 +580,15 @@ public class Graphics implements
+ 			}
+ 		}
+ 		// Use deprecated method due to performance issues
+-		canvas.drawBitmap(pixels, 0, width, x, y, width, height, true, null);
++		// Canvas.drawBitmap(int[], ...) 在部分 Android 上会忽略 canvas 变换，
++		// 改用 Bitmap 形式，位置与 drawImage 一致
++		Bitmap tile = Bitmap.createBitmap(pixels, 0, width, width, height, Bitmap.Config.ARGB_8888);
++		canvas.drawBitmap(tile, x, y, null);
+ 	}
+ 
+ 	public void copyArea(int x_src, int y_src, int width, int height,
+ 						 int x_dest, int y_dest, int anchor) {
+ 		if (width <= 0 || height <= 0) return;
+-		final int[] pixels = new int[width * height];
+-		image.getBitmap().getPixels(pixels, 0, width, x_src, y_src, width, height);
+ 		float dx;
+ 		if ((anchor & Graphics.RIGHT) != 0) {
+ 			dx = x_dest - width;
+@@ -549,14 +605,50 @@ public class Graphics implements
+ 		} else {
+ 			dy = y_dest;
+ 		}
++		if (pixelScale > 1) {
++			/*
++			 * 超采样：源区域是位图里的 ps 倍物理像素，目标仍是逻辑坐标。
++			 * 先拷到暂存位图（避免同一张位图的自我拷贝），再按逻辑矩形贴回，
++			 * 否则地图滚动这类"整屏平移"会错位并被异常放大。
++			 */
++			int w = width * pixelScale;
++			int h = height * pixelScale;
++			if (copyScratch == null || copyScratch.getWidth() < w || copyScratch.getHeight() < h) {
++				Bitmap old = copyScratch;
++				copyScratch = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
++				if (old != null) {
++					old.recycle();
++				}
++			}
++			rect.set(x_src * pixelScale, y_src * pixelScale,
++					x_src * pixelScale + w, y_src * pixelScale + h);
++			rectF.set(0, 0, w, h);
++			scratchCanvas.setBitmap(copyScratch);
++			scratchCanvas.drawBitmap(image.getBitmap(), rect, rectF, null);
++
++			rectZero.set(0, 0, w, h);
++			rectF.set(dx, dy, dx + width, dy + height);
++			canvas.drawBitmap(copyScratch, rectZero, rectF, null);
++			return;
++		}
++		final int[] pixels = new int[width * height];
++		image.getBitmap().getPixels(pixels, 0, width, x_src, y_src, width, height);
+ 		canvas.drawBitmap(pixels, 0, width, dx, dy, width, height, false, null);
+ 	}
+ 
+ 	public void getPixels(int[] pixels, int offset, int stride,
+ 						  int x, int y, int width, int height) {
+ 		Bitmap b = image.getBitmap();
+-		int w = Math.min(width, b.getWidth() - x);
+-		int h = Math.min(height, b.getHeight() - y);
++		int w = Math.min(width, image.getWidth() - x);
++		int h = Math.min(height, image.getHeight() - y);
++		if (pixelScale > 1) {
++			// the caller expects logical pixels, so the supersampled area is scaled down
++			Bitmap area = Bitmap.createBitmap(b, x * pixelScale, y * pixelScale,
++					w * pixelScale, h * pixelScale);
++			Bitmap scaled = Bitmap.createScaledBitmap(area, w, h, true);
++			scaled.getPixels(pixels, offset, stride, 0, 0, w, h);
++			return;
++		}
+ 		b.getPixels(pixels, offset, stride, x, y, w, h);
+ 	}
+ 
+@@ -565,6 +657,15 @@ public class Graphics implements
+ 	}
+ 
+ 	void flush(Image image, int x, int y, int width, int height) {
++		int srcScale = image.getPixelScale();
++		if (srcScale > 1) {
++			// 源图是超采样的：取对应的物理区域，贴到逻辑区域
++			Rect src = new Rect(x * srcScale, y * srcScale,
++					(x + width) * srcScale, (y + height) * srcScale);
++			rectF.set(x, y, x + width, y + height);
++			canvas.drawBitmap(image.getBitmap(), src, rectF, null);
++			return;
++		}
+ 		rect.set(x, y, x + width, y + height);
+ 		canvas.drawBitmap(image.getBitmap(), rect, rect, null);
+ 	}
+diff --git a/app/src/main/java/javax/microedition/lcdui/Image.java b/app/src/main/java/javax/microedition/lcdui/Image.java
+index 2d7b073..a97451a 100644
+--- a/app/src/main/java/javax/microedition/lcdui/Image.java
++++ b/app/src/main/java/javax/microedition/lcdui/Image.java
+@@ -34,28 +34,64 @@ public class Image {
+ 	private Bitmap bitmap;
+ 	private Graphics graphics;
+ 	private final Rect bounds;
++	/**
++	 * Ratio between the size of the backing bitmap and the logical size of the image.
++	 * Used by the supersampled screen buffer, where one logical pixel is backed
++	 * by {@code pixelScale * pixelScale} bitmap pixels.
++	 */
++	private final int pixelScale;
+ 	private boolean isBlackWhiteAlpha;
+ 
+ 	public Image(Bitmap bitmap) {
++		this(bitmap, 1);
++	}
++
++	Image(Bitmap bitmap, int pixelScale) {
+ 		if (bitmap == null) {
+ 			throw new NullPointerException();
+ 		}
+ 		this.bitmap = bitmap;
+-		bounds = new Rect(0, 0, bitmap.getWidth(), bitmap.getHeight());
++		this.pixelScale = Math.max(1, pixelScale);
++		bounds = new Rect(0, 0, bitmap.getWidth() / this.pixelScale,
++				bitmap.getHeight() / this.pixelScale);
+ 	}
+ 
+ 	public Bitmap getBitmap() {
+ 		return bitmap;
+ 	}
+ 
++	/**
++	 * @return the ratio between the backing bitmap size and the logical image size,
++	 * always at least 1
++	 */
++	public int getPixelScale() {
++		return pixelScale;
++	}
++
+ 	public static Image createImage(int width, int height) {
+ 		return createImage(width, height, Color.WHITE);
+ 	}
+ 
+ 	public static Image createImage(int width, int height, int argb) {
+-		Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
++		// 游戏创建的可绘制缓冲：跟随超采样倍率（上限 2），否则预渲染进缓存的文字不会变清晰
++		try {
++			return createImage(width, height, argb, Canvas.mutableImageScale(width, height));
++		} catch (OutOfMemoryError e) {
++			// 内存不够就退回 1x，宁可模糊也不能崩
++			return createImage(width, height, argb, 1);
++		}
++	}
++
++	/**
++	 * Creates an image which is drawn at supersampled resolution.
++	 *
++	 * @param pixelScale ratio between the backing bitmap size and the logical size
++	 */
++	public static Image createImage(int width, int height, int argb, int pixelScale) {
++		int scale = Math.max(1, pixelScale);
++		Bitmap bitmap = Bitmap.createBitmap(width * scale, height * scale, Bitmap.Config.ARGB_8888);
+ 		if (argb != 0) bitmap.eraseColor(argb);
+-		return new Image(bitmap);
++		return new Image(bitmap, scale);
+ 	}
+ 
+ 	public static Image createImage(String resname) throws IOException {
+@@ -89,13 +125,22 @@ public class Image {
+ 	}
+ 
+ 	public static Image createImage(Image image, int x, int y, int width, int height, int transform) {
++		final int ps = image.pixelScale;
++		if (ps > 1) {
++			// 源图是超采样的：物理区域 = 逻辑区域 × ps；结果保持同样倍率以保留细节
++			int pw = width * ps;
++			int ph = height * ps;
++			Matrix m = transform == 0 ? null : Sprite.transformMatrix(transform, pw / 2.0f, ph / 2.0f);
++			Bitmap bmp = Bitmap.createBitmap(image.bitmap, x * ps, y * ps, pw, ph, m, false);
++			return new Image(bmp, ps);
++		}
+ 		Matrix m = transform == 0 ? null : Sprite.transformMatrix(transform, width / 2.0f, height / 2.0f);
+ 		return new Image(Bitmap.createBitmap(image.bitmap, x, y, width, height, m, false));
+ 	}
+ 
+ 	public static Image createImage(Image source) {
+ 		if (source.isMutable())
+-			return new Image(Bitmap.createBitmap(source.bitmap));
++			return new Image(Bitmap.createBitmap(source.bitmap), source.pixelScale);
+ 		return source;
+ 	}
+ 
+@@ -128,16 +173,26 @@ public class Image {
+ 	}
+ 
+ 	public void getRGB(int[] rgbData, int offset, int scanlength, int x, int y, int width, int height) {
++		if (pixelScale > 1) {
++			// 调用方期望逻辑像素，把超采样区域缩回来读
++			Bitmap area = Bitmap.createBitmap(bitmap, x * pixelScale, y * pixelScale,
++					width * pixelScale, height * pixelScale);
++			Bitmap scaled = Bitmap.createScaledBitmap(area, width, height, true);
++			scaled.getPixels(rgbData, offset, scanlength, 0, 0, width, height);
++			return;
++		}
+ 		bitmap.getPixels(rgbData, offset, scanlength, x, y, width, height);
+ 	}
+ 
+ 	void copyTo(Image dst) {
+-		dst.getSingleGraphics().getCanvas().drawBitmap(bitmap, bounds, bounds, null);
++		Rect src = new Rect(0, 0, bounds.right * pixelScale, bounds.bottom * pixelScale);
++		dst.getSingleGraphics().getCanvas().drawBitmap(bitmap, src, bounds, null);
+ 	}
+ 
+ 	void copyTo(Image dst, int x, int y) {
++		Rect src = new Rect(0, 0, bounds.right * pixelScale, bounds.bottom * pixelScale);
+ 		Rect r = new Rect(x, y, x + bounds.right, y + bounds.bottom);
+-		dst.getSingleGraphics().getCanvas().drawBitmap(bitmap, bounds, r, null);
++		dst.getSingleGraphics().getCanvas().drawBitmap(bitmap, src, r, null);
+ 	}
+ 
+ 	public Graphics getSingleGraphics() {
+@@ -148,21 +203,16 @@ public class Image {
+ 	}
+ 
+ 	void setSize(int width, int height) {
+-		if (width > bitmap.getWidth() || height > bitmap.getHeight()) {
+-			Bitmap b = bitmap;
+-			bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+-			bounds.right = width;
+-			bounds.bottom = height;
+-			if (graphics != null) {
+-				graphics.reset(0, 0, width, height);
+-				graphics.getCanvas().drawBitmap(b, 0, 0, null);
+-			}
+-		} else {
+-			bounds.right = width;
+-			bounds.bottom = height;
+-			if (graphics != null) {
+-				graphics.reset(0, 0, width, height);
+-			}
++		if (width * pixelScale > bitmap.getWidth() || height * pixelScale > bitmap.getHeight()) {
++			bitmap = Bitmap.createBitmap(width * pixelScale, height * pixelScale,
++					Bitmap.Config.ARGB_8888);
++			// the cached graphics is bound to the replaced bitmap
++			graphics = null;
++		}
++		bounds.right = width;
++		bounds.bottom = height;
++		if (graphics != null) {
++			graphics.reset(0, 0, width, height);
+ 		}
+ 	}
+ 
+diff --git a/app/src/main/java/javax/microedition/lcdui/game/GameCanvas.java b/app/src/main/java/javax/microedition/lcdui/game/GameCanvas.java
+index 06a3062..745e7e1 100644
+--- a/app/src/main/java/javax/microedition/lcdui/game/GameCanvas.java
++++ b/app/src/main/java/javax/microedition/lcdui/game/GameCanvas.java
+@@ -32,7 +32,7 @@ public class GameCanvas extends Canvas {
+ 	public static final int GAME_C_PRESSED = 1 << Canvas.GAME_C;
+ 	public static final int GAME_D_PRESSED = 1 << Canvas.GAME_D;
+ 
+-	private final Image image;
++	private Image image;
+ 	private final boolean suppressCommands;
+ 
+ 	private int keyState;
+@@ -41,12 +41,24 @@ public class GameCanvas extends Canvas {
+ 	public GameCanvas(boolean suppressCommands) {
+ 		super();
+ 		this.suppressCommands = suppressCommands;
+-		image = Image.createImage(width, maxHeight);
+ 	}
+ 
+ 	@Override
+ 	public void paint(Graphics g) {
+-		g.drawImage(image, 0, 0, Graphics.LEFT | Graphics.TOP);
++		g.drawImage(image(), 0, 0, Graphics.LEFT | Graphics.TOP);
++	}
++
++	/**
++	 * GameCanvas 自己维护一块绘制缓冲。这里必须跟屏幕用同样的超采样倍率，
++	 * 否则游戏内容（含文字）会先被光栅化到 1x 缓冲里，超采样就只作用在最后一次贴图上。
++	 */
++	private Image image() {
++		int scale = getSupersamplingFactor();
++		if (image == null || image.getPixelScale() != scale
++				|| image.getWidth() != width || image.getHeight() != maxHeight) {
++			image = Image.createImage(width, maxHeight, 0, scale);
++		}
++		return image;
+ 	}
+ 
+ 	private int convertGameKeyCode(int keyCode) {
+@@ -125,7 +137,7 @@ public class GameCanvas extends Canvas {
+ 	}
+ 
+ 	public Graphics getGraphics() {
+-		return image.getGraphics();
++		return image().getGraphics();
+ 	}
+ 
+ 	@SuppressWarnings("unused")
+@@ -135,7 +147,7 @@ public class GameCanvas extends Canvas {
+ 
+ 	@SuppressWarnings("WeakerAccess")
+ 	public void flushGraphics(int x, int y, int width, int height) {
+-		flushBuffer(image, x, y, width, height);
++		flushBuffer(image(), x, y, width, height);
+ 	}
+ 
+ 	@Override
+diff --git a/app/src/main/java/javax/microedition/lcdui/graphics/CanvasWrapper.java b/app/src/main/java/javax/microedition/lcdui/graphics/CanvasWrapper.java
+index 1bb7169..30f710d 100644
+--- a/app/src/main/java/javax/microedition/lcdui/graphics/CanvasWrapper.java
++++ b/app/src/main/java/javax/microedition/lcdui/graphics/CanvasWrapper.java
+@@ -20,6 +20,7 @@ public class CanvasWrapper {
+ 	private final Paint fillPaint = new Paint();
+ 	private final Paint textPaint = new Paint();
+ 	private final Paint imgPaint = new Paint();
++	private final Rect imgSrc = new Rect();
+ 	private final float textSize;
+ 
+ 	private float textAscent;
+@@ -76,18 +77,29 @@ public class CanvasWrapper {
+ 	public void drawImage(Image image, RectF dst) {
+ 		Bitmap bitmap = image.getBitmap();
+ 		bitmap.prepareToDraw();
+-		canvas.drawBitmap(bitmap, image.getBounds(), dst, imgPaint);
++		// only the used part of the bitmap is visible, it may be supersampled
++		int scale = image.getPixelScale();
++		imgSrc.set(0, 0, image.getWidth() * scale, image.getHeight() * scale);
++		canvas.drawBitmap(bitmap, imgSrc, dst, imgPaint);
+ 	}
+ 
+-	public void drawBitmap(Bitmap bitmap, Rect src, RectF dst) {
+-		bitmap.prepareToDraw();
+-		canvas.drawBitmap(bitmap, src, dst, imgPaint);
++	/**
++	 * Enables bilinear filtering, which is required to downscale a supersampled
++	 * screen buffer with acceptable quality.
++	 */
++	public void setFilterBitmap(boolean filter) {
++		imgPaint.setFilterBitmap(filter);
+ 	}
+ 
+ 	public void fillRect(RectF rect) {
+ 		canvas.drawRect(rect, fillPaint);
+ 	}
+ 
++	public void drawBitmap(Bitmap bitmap, Rect src, RectF dst) {
++		bitmap.prepareToDraw();
++		canvas.drawBitmap(bitmap, src, dst, imgPaint);
++	}
++
+ 	public void drawRect(RectF rect) {
+ 		canvas.drawRect(rect, drawPaint);
+ 	}
+diff --git a/app/src/main/java/javax/microedition/m3g/Graphics3D.java b/app/src/main/java/javax/microedition/m3g/Graphics3D.java
+index 6e4e541..17d62a9 100644
+--- a/app/src/main/java/javax/microedition/m3g/Graphics3D.java
++++ b/app/src/main/java/javax/microedition/m3g/Graphics3D.java
+@@ -159,6 +159,12 @@ public class Graphics3D {
+ 			buffer = finalG.getBitmap();
+ 			final int width = buffer.getWidth();
+ 			final int height = buffer.getHeight();
++			// 超采样：缓冲是逻辑尺寸的 ps 倍，视口也要按 ps 缩放，否则 3D 只画在左上角 1/ps 区域
++			final int ps = finalG.getPixelScale();
++			final int vpX = clipX * ps;
++			final int vpY = clipY * ps;
++			final int vpW = clipW * ps;
++			final int vpH = clipH * ps;
+ 
+ 			Platform.executeInUIThread(
+ 					new M3gRunnable() {
+@@ -166,7 +172,7 @@ public class Graphics3D {
+ 						public void doRun() {
+ 							iIsImageTarget = _bindGraphics(
+ 									handle, 0, width, height,
+-									clipX, clipY, clipW, clipH,
++									vpX, vpY, vpW, vpH,
+ 									finalDepth, finalFlags, iIsProperRenderer,
+ 									buffer);
+ 						}
+diff --git a/app/src/main/java/javax/microedition/shell/MicroLoader.java b/app/src/main/java/javax/microedition/shell/MicroLoader.java
+index 6cc931b..9aab015 100644
+--- a/app/src/main/java/javax/microedition/shell/MicroLoader.java
++++ b/app/src/main/java/javax/microedition/shell/MicroLoader.java
+@@ -267,6 +267,7 @@ public class MicroLoader {
+ 			Canvas.setBackgroundColor(params.screenBackgroundColor);
+ 			Canvas.setScale(params.screenGravity, params.screenScaleType, params.screenScaleRatio);
+ 			Canvas.setFilterBitmap(params.screenFilter);
++			Canvas.setSupersampling(params.supersampling);
+ 			EventQueue.setImmediate(params.immediateMode);
+ 			Canvas.setGraphicsMode(params.graphicsMode, params.parallelRedrawScreen);
+ 			ShaderInfo shader = params.shader;
+diff --git a/app/src/main/java/ru/playsoftware/j2meloader/config/Config.java b/app/src/main/java/ru/playsoftware/j2meloader/config/Config.java
+index 65cbe56..c4989d1 100644
+--- a/app/src/main/java/ru/playsoftware/j2meloader/config/Config.java
++++ b/app/src/main/java/ru/playsoftware/j2meloader/config/Config.java
+@@ -26,6 +26,7 @@ import android.content.Context;
+ import android.content.Intent;
+ import android.content.SharedPreferences;
+ import android.net.Uri;
++import android.os.Build;
+ import android.os.Environment;
+ 
+ import androidx.annotation.Keep;
+@@ -83,9 +84,13 @@ public class Config {
+ 		SCREENSHOTS_DIR = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+ 				+ "/" + appName;
+ 		SharedPreferences preferences = PreferenceManager.getDefaultSharedPreferences(context);
+-		String path = FileUtils.isExternalStorageLegacy() ?
+-				preferences.getString(PREF_EMULATOR_DIR, null) :
+-				context.getExternalFilesDir(null).getPath();
++		String path = preferences.getString(PREF_EMULATOR_DIR, null);
++		boolean customDirUsable = path != null &&
++				(FileUtils.isExternalStorageLegacy() || isAllFilesAccessGranted());
++		if (!customDirUsable) {
++			path = FileUtils.isExternalStorageLegacy() ?
++					null : context.getExternalFilesDir(null).getPath();
++		}
+ 		if (path == null) {
+ 			path = Environment.getExternalStorageDirectory() + "/" + appName;
+ 		}
+@@ -126,11 +131,15 @@ public class Config {
+ 	}
+ 
+ 	public static String getFsExternalDir() {
+-		if (FileUtils.isExternalStorageLegacy()) {
++		// 授予「所有文件访问」后，游戏内的外部存储直接映射到真实 /sdcard
++		if (isAllFilesAccessGranted() || FileUtils.isExternalStorageLegacy()) {
+ 			return Environment.getExternalStorageDirectory().getPath() + "/";
+-		} else {
+-			return emulatorDir + FS_DIR + "e/";
+ 		}
++		return emulatorDir + FS_DIR + "e/";
++	}
++
++	private static boolean isAllFilesAccessGranted() {
++		return Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager();
+ 	}
+ 
+ 	public static void startApp(Context context, String name, String path, boolean showSettings) {
+diff --git a/app/src/main/java/ru/playsoftware/j2meloader/config/ConfigActivity.java b/app/src/main/java/ru/playsoftware/j2meloader/config/ConfigActivity.java
+index c886df5..a5f39f6 100644
+--- a/app/src/main/java/ru/playsoftware/j2meloader/config/ConfigActivity.java
++++ b/app/src/main/java/ru/playsoftware/j2meloader/config/ConfigActivity.java
+@@ -52,6 +52,7 @@ import android.widget.ArrayAdapter;
+ import android.widget.CompoundButton;
+ import android.widget.EditText;
+ import android.widget.ListView;
++import android.widget.SeekBar;
+ import android.widget.TextView;
+ import android.widget.Toast;
+ 
+@@ -125,6 +126,16 @@ public class ConfigActivity extends BaseActivity implements View.OnClickListener
+ 			});
+ 
+ 	@SuppressLint({"StringFormatMatches", "StringFormatInvalid"})
++	private static String supersamplingLabel(int v) {
++		if (v <= 0) {
++			return "自动";
++		}
++		if (v == 1) {
++			return "关闭";
++		}
++		return v + "×";
++	}
++
+ 	@Override
+ 	public void onCreate(@Nullable Bundle savedInstanceState) {
+ 		super.onCreate(savedInstanceState);
+@@ -654,6 +665,23 @@ public class ConfigActivity extends BaseActivity implements View.OnClickListener
+ 		binding.fontSizeLarge.setText(Integer.toString(params.fontSizeLarge));
+ 		binding.showFontSizesInScaledPixelsToggle.setChecked(params.fontApplyDimensions);
+ 		binding.enableAntiAliasingToggle.setChecked(params.fontAA);
++		binding.renderScale.setProgress(params.supersampling < 0 ? 0 : params.supersampling);
++		binding.renderScaleValue.setText(supersamplingLabel(binding.renderScale.getProgress()));
++		binding.renderScale.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
++			@Override
++			public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
++				binding.renderScaleValue.setText(supersamplingLabel(progress));
++			}
++
++			@Override
++			public void onStartTrackingTouch(SeekBar seekBar) {
++			}
++
++			@Override
++			public void onStopTrackingTouch(SeekBar seekBar) {
++			}
++		});
++
+ 		boolean showVk = params.showKeyboard;
+ 		binding.showVirtualKeyboardToggle.setChecked(showVk);
+ 		binding.virtualKeyboardConfigGroup.setVisibility(showVk ? View.VISIBLE : View.GONE);
+@@ -733,6 +761,7 @@ public class ConfigActivity extends BaseActivity implements View.OnClickListener
+ 			}
+ 			params.fontApplyDimensions = binding.showFontSizesInScaledPixelsToggle.isChecked();
+ 			params.fontAA = binding.enableAntiAliasingToggle.isChecked();
++			params.supersampling = binding.renderScale.getProgress();
+ 			params.showKeyboard = binding.showVirtualKeyboardToggle.isChecked();
+ 			params.vkFeedback = binding.enableHapticFeedbackToggle.isChecked();
+ 			params.vkForceOpacity = binding.forceOpacityForOffscreenKeysToggle.isChecked();
+diff --git a/app/src/main/java/ru/playsoftware/j2meloader/config/ProfileModel.java b/app/src/main/java/ru/playsoftware/j2meloader/config/ProfileModel.java
+index 983222c..51f159c 100644
+--- a/app/src/main/java/ru/playsoftware/j2meloader/config/ProfileModel.java
++++ b/app/src/main/java/ru/playsoftware/j2meloader/config/ProfileModel.java
+@@ -107,6 +107,10 @@ public class ProfileModel {
+ 	@SerializedName("FontAntiAlias")
+ 	public boolean fontAA;
+ 
++	/** 虚拟屏幕超采样倍率：0 = 自动（按屏幕分辨率），1 = 关闭，2..10 = 指定倍率。 */
++	@SerializedName("Supersampling")
++	public int supersampling = 0;
++
+ 	@SerializedName("TouchInput")
+ 	public boolean touchInput;
+ 
+diff --git a/app/src/main/java/ru/playsoftware/j2meloader/filepicker/FilteredFilePickerFragment.java b/app/src/main/java/ru/playsoftware/j2meloader/filepicker/FilteredFilePickerFragment.java
+index 9e7a727..8b1c78d 100644
+--- a/app/src/main/java/ru/playsoftware/j2meloader/filepicker/FilteredFilePickerFragment.java
++++ b/app/src/main/java/ru/playsoftware/j2meloader/filepicker/FilteredFilePickerFragment.java
+@@ -18,6 +18,7 @@ package ru.playsoftware.j2meloader.filepicker;
+ 
+ import android.content.Context;
+ import android.net.Uri;
++import android.os.Build;
+ import android.os.Environment;
+ import android.view.LayoutInflater;
+ import android.view.ViewGroup;
+@@ -37,6 +38,17 @@ import java.util.Stack;
+ import ru.playsoftware.j2meloader.R;
+ 
+ public class FilteredFilePickerFragment extends FilePickerFragment {
++
++		/** 库只认旧的 WRITE_EXTERNAL_STORAGE 运行时权限；Android 11+ 上
++		 *  「所有文件访问」(MANAGE_EXTERNAL_STORAGE) 已授予时直接放行，否则会误报权限被拒 */
++		@Override
++		protected boolean hasPermission(@NonNull File path) {
++			if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
++				return true;
++			}
++			return super.hasPermission(path);
++		}
++
+ 	private static final List<String> extList = Arrays.asList(".jad", ".jar", ".kjx");
+ 	private static final Stack<File> history = new Stack<>();
+ 
+diff --git a/app/src/main/java/ru/playsoftware/j2meloader/settings/SettingsFragment.java b/app/src/main/java/ru/playsoftware/j2meloader/settings/SettingsFragment.java
+index a1475fb..abf8641 100644
+--- a/app/src/main/java/ru/playsoftware/j2meloader/settings/SettingsFragment.java
++++ b/app/src/main/java/ru/playsoftware/j2meloader/settings/SettingsFragment.java
+@@ -27,8 +27,10 @@ import android.content.Intent;
+ import android.content.res.XmlResourceParser;
+ import android.net.Uri;
+ import android.os.Build;
++import android.os.Environment;
+ import android.os.Bundle;
+ import android.provider.DocumentsContract;
++import android.provider.Settings;
+ import android.util.Log;
+ 
+ import androidx.activity.result.ActivityResultLauncher;
+@@ -73,10 +75,21 @@ public class SettingsFragment extends PreferenceFragmentCompat {
+ 		prefFolder = findPreference(PREF_EMULATOR_DIR);
+ 		prefFolder.setSummary(Config.getEmulatorDir());
+ 		prefFolder.setOnPreferenceClickListener(preference -> {
+-			if (FileUtils.isExternalStorageLegacy()) {
++			if (FileUtils.isExternalStorageLegacy() || isAllFilesAccessGranted()) {
+ 				openDirLauncher.launch(null);
+ 			} else {
+-				openPicker();
++				// Android 11+ 分区存储：需要「所有文件访问」权限才能使用自定义目录
++				new AlertDialog.Builder(requireActivity())
++						.setTitle(R.string.error)
++						.setMessage("使用自定义工作目录需要授予「所有文件访问」权限，点击确定前往系统设置开启。")
++						.setCancelable(false)
++						.setPositiveButton(android.R.string.ok, (d, w) -> {
++							Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
++									Uri.parse("package:" + requireContext().getPackageName()));
++							startActivity(intent);
++						})
++						.setNegativeButton(android.R.string.cancel, null)
++						.show();
+ 			}
+ 			return true;
+ 		});
+@@ -129,6 +142,10 @@ public class SettingsFragment extends PreferenceFragmentCompat {
+ 		});
+ 	}
+ 
++	private static boolean isAllFilesAccessGranted() {
++		return Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager();
++	}
++
+ 	private void openPicker() {
+ 		try {
+ 			startActivity(getFileManagerIntentOnDocumentProvider(Intent.ACTION_VIEW));
+diff --git a/app/src/main/res/layout/activity_config.xml b/app/src/main/res/layout/activity_config.xml
+index 5ba3fe4..77fbb7b 100644
+--- a/app/src/main/res/layout/activity_config.xml
++++ b/app/src/main/res/layout/activity_config.xml
+@@ -545,6 +545,43 @@
+                 app:layout_constraintEnd_toEndOf="parent"
+                 app:layout_constraintStart_toStartOf="parent"
+                 app:layout_constraintTop_toBottomOf="@+id/show_font_sizes_in_scaled_pixels_toggle" />
++            <LinearLayout
++                android:id="@+id/render_scale_row"
++                android:layout_width="0dp"
++                android:layout_height="wrap_content"
++                android:layout_marginLeft="16dp"
++                android:layout_marginRight="16dp"
++                android:gravity="center_vertical"
++                android:orientation="horizontal"
++                app:layout_constraintEnd_toEndOf="parent"
++                app:layout_constraintStart_toStartOf="parent"
++                app:layout_constraintTop_toBottomOf="@+id/enable_anti_aliasing_toggle">
++
++                <TextView
++                    android:layout_width="wrap_content"
++                    android:layout_height="wrap_content"
++                    android:text="超采样"
++                    android:textColor="?attr/textColorSecondary"
++                    android:textSize="12sp" />
++
++
++                <SeekBar
++                    android:id="@+id/render_scale"
++                    android:layout_width="0dp"
++                    android:layout_height="wrap_content"
++                    android:layout_marginLeft="8dp"
++                    android:layout_weight="1"
++                    android:max="10" />
++
++                <TextView
++                    android:id="@+id/render_scale_value"
++                    android:layout_width="40dp"
++                    android:layout_height="wrap_content"
++                    android:gravity="end"
++                    android:text="自动"
++                    android:textColor="?attr/textColorSecondary"
++                    android:textSize="12sp" />
++            </LinearLayout>
+ 
+         </androidx.constraintlayout.widget.ConstraintLayout><!-- Font -->
+ 
+diff --git a/app/src/main/res/layout/list_row_grid_jar.xml b/app/src/main/res/layout/list_row_grid_jar.xml
+index 2bbb419..f6a0caa 100644
+--- a/app/src/main/res/layout/list_row_grid_jar.xml
++++ b/app/src/main/res/layout/list_row_grid_jar.xml
+@@ -7,7 +7,10 @@
+     android:orientation="vertical"
+     android:gravity="center_horizontal"
+     android:background="?android:selectableItemBackground"
+-    android:padding="10dp"
++    android:paddingTop="5dp"
++    android:paddingBottom="5dp"
++    android:paddingLeft="2dp"
++    android:paddingRight="2dp"
+     android:focusable="true"
+     tools:showIn="@layout/fragment_apps_list">
+ 
+diff --git a/dexlib/src/main/java/org/microemu/android/asm/AndroidProducer.java b/dexlib/src/main/java/org/microemu/android/asm/AndroidProducer.java
+index 3367f58..891b9f2 100644
+--- a/dexlib/src/main/java/org/microemu/android/asm/AndroidProducer.java
++++ b/dexlib/src/main/java/org/microemu/android/asm/AndroidProducer.java
+@@ -41,7 +41,26 @@ public class AndroidProducer {
+ 			throw new IllegalArgumentException("Class name does not match path");
+ 		}
+ 
+-		ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS);
++		// 插桩会改动指令，原始 StackMapTable 会失效，必须重算帧。
++		// 只用 COMPUTE_MAXS 会导致输出缺少 frames，dx 在 class 版本 >= 50（Java 6+）时
++		// 推断失败并抛 "SimException: stack: overflow"（现代 JDK 编译的移植游戏常见）。
++		ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
++			@Override
++			protected String getCommonSuperClass(String type1, String type2) {
++				if (type1.equals(type2)) {
++					return type1;
++				}
++				if ("java/lang/Object".equals(type1) || "java/lang/Object".equals(type2)) {
++					return "java/lang/Object";
++				}
++				try {
++					return super.getCommonSuperClass(type1, type2);
++				} catch (Throwable t) {
++					// MIDP 等类不在编译期 classpath 上，退化为 Object，保证帧合法
++					return "java/lang/Object";
++				}
++			}
++		};
+ 		ClassVisitor cv = new AndroidClassVisitor(cw);
+ 		cr.accept(cv, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+ 
