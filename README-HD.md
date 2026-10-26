@@ -6,6 +6,13 @@
 > 超采样的实现思路参考了 [woesss/JL-Mod](https://github.com/woesss/JL-Mod) 与
 > [mobeiqingkong/J2ME-Loader](https://github.com/mobeiqingkong/J2ME-Loader)（感谢）。
 
+## 与其他分支的关系
+
+- 源码基线：**nikita36078/J2ME-Loader** 的 `master`（2026-10 快照）。本仓库只在此基础上做超采样与相关修复。
+- 超采样**思路**参考了 **mobeiqingkong/J2ME-Loader** 与 **woesss/JL-Mod**，但代码是按本项目结构重新实现的。
+- 本仓库**不包含** mobeiqingkong 分支的附加功能（内存修改器 Trainer、游戏缩放 gameScale 等）。
+  如果你需要那些功能，请使用原分支；两个分支可以分别安装（包名不同）。
+
 ## 特性
 
 ### 1. 整帧超采样（核心）
