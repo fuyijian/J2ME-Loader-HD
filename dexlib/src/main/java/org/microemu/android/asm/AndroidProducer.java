@@ -41,7 +41,26 @@ public class AndroidProducer {
 			throw new IllegalArgumentException("Class name does not match path");
 		}
 
-		ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+		// 插桩会改动指令，原始 StackMapTable 会失效，必须重算帧。
+		// 只用 COMPUTE_MAXS 会导致输出缺少 frames，dx 在 class 版本 >= 50（Java 6+）时
+		// 推断失败并抛 "SimException: stack: overflow"（现代 JDK 编译的移植游戏常见）。
+		ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
+			@Override
+			protected String getCommonSuperClass(String type1, String type2) {
+				if (type1.equals(type2)) {
+					return type1;
+				}
+				if ("java/lang/Object".equals(type1) || "java/lang/Object".equals(type2)) {
+					return "java/lang/Object";
+				}
+				try {
+					return super.getCommonSuperClass(type1, type2);
+				} catch (Throwable t) {
+					// MIDP 等类不在编译期 classpath 上，退化为 Object，保证帧合法
+					return "java/lang/Object";
+				}
+			}
+		};
 		ClassVisitor cv = new AndroidClassVisitor(cw);
 		cr.accept(cv, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
 
