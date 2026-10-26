@@ -41,28 +41,18 @@ public class AndroidProducer {
 			throw new IllegalArgumentException("Class name does not match path");
 		}
 
-		// 插桩会改动指令，原始 StackMapTable 会失效，必须重算帧。
-		// 只用 COMPUTE_MAXS 会导致输出缺少 frames，dx 在 class 版本 >= 50（Java 6+）时
-		// 推断失败并抛 "SimException: stack: overflow"（现代 JDK 编译的移植游戏常见）。
-		ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES) {
-			@Override
-			protected String getCommonSuperClass(String type1, String type2) {
-				if (type1.equals(type2)) {
-					return type1;
-				}
-				if ("java/lang/Object".equals(type1) || "java/lang/Object".equals(type2)) {
-					return "java/lang/Object";
-				}
-				try {
-					return super.getCommonSuperClass(type1, type2);
-				} catch (Throwable t) {
-					// MIDP 等类不在编译期 classpath 上，退化为 Object，保证帧合法
-					return "java/lang/Object";
-				}
-			}
-		};
+		/*
+		 * 帧处理策略（两次踩坑后的结论）：
+		 * - class 版本 < 50 的类本来就没有 StackMapTable（老 J2ME 游戏，如 Java 1.1 编译的移植版），
+		 *   若用 COMPUTE_FRAMES 强造帧，遇到 MIDP 类（不在编译期 classpath）只能退化成 Object，
+		 *   会产生**不精确的帧**，ART 校验失败 → 游戏启动即崩（VerifyError）。
+		 * - class 版本 >= 50 的类带帧：不要 SKIP_FRAMES，直接保留原始帧即可。
+		 *   本类的改写都是**等价替换**（invokestatic 换 owner / 插入被紧随其后的调用消耗的常量），
+		 *   栈形状不变，因此原帧依然有效 —— 既避免 dx 推断失败（stack: overflow），也不会造出错帧。
+		 */
+		ClassWriter cw = new ClassWriter(cr, ClassWriter.COMPUTE_MAXS);
 		ClassVisitor cv = new AndroidClassVisitor(cw);
-		cr.accept(cv, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+		cr.accept(cv, ClassReader.SKIP_DEBUG);
 
 		return cw.toByteArray();
 	}
