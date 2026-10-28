@@ -68,6 +68,13 @@ public class AndroidMethodVisitor extends MethodVisitor {
 					mv.visitMethodInsn(opcode, owner, "sleep", "(J)V", false);
 					return;
 				}
+					// 加速：真实等待时间按倍速缩短
+					if (opcode == INVOKESTATIC && name.equals("sleep")
+							&& (desc.equals("(J)V") || desc.equals("(JI)V"))) {
+						mv.visitMethodInsn(INVOKESTATIC, "javax/microedition/util/VirtualClock",
+								"sleep", desc, false);
+						return;
+					}
 				break;
 			case "java/lang/String":
 				if (name.equals("<init>") && desc.startsWith("([B") && !desc.endsWith("Ljava/lang/String;)V")) {
@@ -124,6 +131,17 @@ public class AndroidMethodVisitor extends MethodVisitor {
 					mv.visitMethodInsn(opcode, "javax/microedition/shell/MidletSystem", name, desc, itf);
 					return;
 				}
+					// 加速：游戏感知的时间走虚拟时钟
+					if (opcode == INVOKESTATIC && name.equals("currentTimeMillis") && desc.equals("()J")) {
+						mv.visitMethodInsn(INVOKESTATIC, "javax/microedition/util/VirtualClock",
+								"currentTimeMillis", "()J", false);
+						return;
+					}
+					if (opcode == INVOKESTATIC && name.equals("nanoTime") && desc.equals("()J")) {
+						mv.visitMethodInsn(INVOKESTATIC, "javax/microedition/util/VirtualClock",
+								"nanoTime", "()J", false);
+						return;
+					}
 				break;
 			case "java/util/Timer":
 				owner = "javax/microedition/shell/custom/Timer";

@@ -77,6 +77,7 @@ import javax.microedition.lcdui.event.SimpleEvent;
 import javax.microedition.lcdui.keyboard.VirtualKeyboard;
 import javax.microedition.location.LocationProviderImpl;
 import javax.microedition.util.ContextHolder;
+import javax.microedition.util.VirtualClock;
 
 import io.reactivex.SingleObserver;
 import io.reactivex.disposables.Disposable;
@@ -102,6 +103,8 @@ public class MicroActivity extends AppCompatActivity {
 	private InputMethodManager inputMethodManager;
 	private int menuKey;
 	private String appPath;
+	/** 0=未检测 1=支持加速 2=不支持（dex 里没有 VirtualClock 引用） */
+	private int speedSupportState;
 
 	public ActivityMicroBinding binding;
 
@@ -463,6 +466,8 @@ public class MicroActivity extends AppCompatActivity {
 			takeScreenshot();
 		} else if (id == R.id.action_limit_fps) {
 			showLimitFpsDialog();
+		} else if (id == R.id.action_game_speed) {
+			showGameSpeedDialog();
 		} else if (ContextHolder.getVk() != null) {
 			// Handled only when virtual keyboard is enabled
 			handleVkOptions(id);
@@ -616,6 +621,74 @@ public class MicroActivity extends AppCompatActivity {
 				.setNegativeButton(android.R.string.cancel, null)
 				.setNeutralButton(R.string.reset, ((d, which) -> microLoader.setLimitFps(-1)))
 				.show();
+	}
+
+	private void showGameSpeedDialog() {
+		final double[] speeds = {1, 2, 3, 4};
+		final String[] labels = {"1×", "2×", "3×", "4×"};
+		double current = VirtualClock.getSpeed();
+		int checked = 0;
+		for (int i = 0; i < speeds.length; i++) {
+			if (speeds[i] == current) {
+				checked = i;
+			}
+		}
+		// 注意：AlertDialog 同时设置 message 与单选列表时，列表会被挤掉，所以状态放进标题。
+		// 标题只放一个短标记，完整提示留到"选了倍速却用不了"时再弹，避免标题换行。
+		final boolean supported = isSpeedSupported();
+		String title = getString(R.string.PREF_GAME_SPEED);
+		if (!supported) {
+			title += getString(R.string.game_speed_inactive);
+		}
+		new AlertDialog.Builder(this)
+				.setTitle(title)
+				.setSingleChoiceItems(labels, checked, (dialog, which) -> {
+					VirtualClock.setSpeed(speeds[which]);
+					dialog.dismiss();
+					if (!supported && speeds[which] > 1) {
+						// 该游戏导入时还没有改写时间调用，选了也不会生效——直接告诉用户怎么办
+						Toast.makeText(this, R.string.game_speed_need_reimport, Toast.LENGTH_LONG).show();
+					} else {
+						Toast.makeText(this, getString(R.string.PREF_GAME_SPEED) + " " + labels[which],
+								Toast.LENGTH_SHORT).show();
+					}
+				})
+				.setNegativeButton(android.R.string.cancel, null)
+				.show();
+	}
+
+	/** 判断当前游戏的 dex 是否含 VirtualClock 引用（即导入时已改写过时间调用） */
+	private boolean isSpeedSupported() {
+		if (speedSupportState != 0) {
+			return speedSupportState == 1;
+		}
+		boolean supported = false;
+		try {
+			File dex = new File(appPath, Config.MIDLET_DEX_FILE);
+			if (dex.isFile() && dex.length() < 16L * 1024 * 1024) {
+				byte[] data = new byte[(int) dex.length()];
+				try (java.io.FileInputStream in = new java.io.FileInputStream(dex)) {
+					int read = 0;
+					while (read < data.length) {
+						int r = in.read(data, read, data.length - read);
+						if (r < 0) break;
+						read += r;
+					}
+				}
+				byte[] needle = "VirtualClock".getBytes("UTF-8");
+				outer:
+				for (int i = 0; i <= data.length - needle.length; i++) {
+					for (int j = 0; j < needle.length; j++) {
+						if (data[i + j] != needle[j]) continue outer;
+					}
+					supported = true;
+					break;
+				}
+			}
+		} catch (Throwable ignored) {
+		}
+		speedSupportState = supported ? 1 : 2;
+		return supported;
 	}
 
 	@Override
