@@ -53,6 +53,8 @@ public class Graphics3D {
 
 	private java.lang.Object currentTarget = null;
 	private int offsetX, offsetY, hints = 0;
+	/** 当前渲染目标的超采样倍率（绑定 Graphics 时记录，视口/坐标需按它换算） */
+	private int targetScale = 1;
 	private boolean depthEnabled = true;
 	private Destroyer destroyer;
 	private Interface iInterface;
@@ -161,6 +163,7 @@ public class Graphics3D {
 			final int height = buffer.getHeight();
 			// 超采样：缓冲是逻辑尺寸的 ps 倍，视口也要按 ps 缩放，否则 3D 只画在左上角 1/ps 区域
 			final int ps = finalG.getPixelScale();
+			targetScale = ps;
 			final int vpX = clipX * ps;
 			final int vpY = clipY * ps;
 			final int vpW = clipW * ps;
@@ -183,6 +186,7 @@ public class Graphics3D {
 		} else if (target instanceof Image2D) {
 			Image2D img = (Image2D) target;
 
+			targetScale = 1;
 			offsetX = offsetY = 0;
 			final long imageHandle = img.handle;
 
@@ -206,6 +210,7 @@ public class Graphics3D {
 	 *
 	 */
 	public void releaseTarget() {
+		// 目标解除后视口换算恢复 1 倍（不影响旧目标已提交的帧）
 		integrityCheck();
 		if (currentTarget == null) {
 			return;
@@ -244,7 +249,8 @@ public class Graphics3D {
 				|| height > Defs.MAX_VIEWPORT_DIMENSION) {
 			throw new IllegalArgumentException();
 		}
-		_setViewport(handle, x + offsetX, y + offsetY, width, height);
+		_setViewport(handle, (x + offsetX) * targetScale, (y + offsetY) * targetScale,
+				width * targetScale, height * targetScale);
 	}
 
 	/**
@@ -470,22 +476,22 @@ public class Graphics3D {
 
 	public int getViewportHeight() {
 		integrityCheck();
-		return _getViewportHeight(handle);
+		return _getViewportHeight(handle) / targetScale;
 	}
 
 	public int getViewportWidth() {
 		integrityCheck();
-		return _getViewportWidth(handle);
+		return _getViewportWidth(handle) / targetScale;
 	}
 
 	public int getViewportX() {
 		integrityCheck();
-		return _getViewportX(handle) - offsetX;
+		return _getViewportX(handle) / targetScale - offsetX;
 	}
 
 	public int getViewportY() {
 		integrityCheck();
-		return _getViewportY(handle) - offsetY;
+		return _getViewportY(handle) / targetScale - offsetY;
 	}
 
 	public int getHints() {

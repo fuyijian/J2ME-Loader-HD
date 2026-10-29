@@ -36,7 +36,7 @@
 | `GameCanvas` 自有缓冲 | 跟随屏幕倍率惰性重建（否则游戏内容仍画在 1× 上） |
 | 游戏自建的可变 `Image` | 跟随倍率（≤3×，带面积上限与 OOM 回退），预渲染缓存里的文字也清晰 |
 | `Image.createImage(Image,…)` | 按物理区域截取子图，结果保持倍率 |
-| M3G `Graphics3D.bindTarget` | 视口按倍率缩放，避免 3D 只画在左上角 |
+| M3G `Graphics3D.bindTarget` / `setViewport` / `getViewport*` | 视口与缓冲尺寸统一按倍率换算，避免 3D 只画在左上角 |
 
 ### 2. 可自定义工作目录
 
