@@ -4,6 +4,12 @@ plugins {
     id 'com.android.application'
 }
 
+/**
+ * HD 分支的发布版本号：正式 Release 的 APK 统一命名为 J2ME-Loader-HD-v<此值>.apk，
+ * 与 GitHub Release 的 tag 对应。每次发版只改这一行。
+ */
+def hdReleaseVersion = '1.4'
+
 def midletArchivesBaseName
 
 android {
@@ -138,6 +144,10 @@ androidComponents {
         def baseName = variant.flavorName == 'midlet' ? "${midletArchivesBaseName}-" : "${rootProject.name}-"
         variant.outputs.each { output ->
             output.outputFileName.set(output.versionName.map { versionName ->
+                if (variant.buildType == 'release' && variant.flavorName != 'midlet') {
+                    // 发布包统一命名：J2ME-Loader-HD-v1.4.apk（与 Release tag 对应）
+                    return "J2ME-Loader-HD-v${hdReleaseVersion}.apk"
+                }
                 "${baseName}${versionName}-${variant.buildType}.apk"
                         .replaceAll('--+', '-').replaceAll(' +', '_')
             })
