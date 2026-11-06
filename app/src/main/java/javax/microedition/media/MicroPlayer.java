@@ -33,7 +33,8 @@ import kotlin.io.FilesKt;
 import ru.woesss.j2me.mmapi.FileCacheDataSource;
 import ru.woesss.j2me.mmapi.protocol.device.DeviceMetaData;
 
-public class MicroPlayer extends BasePlayer implements MediaPlayer.OnCompletionListener, ToneControl {
+public class MicroPlayer extends BasePlayer implements MediaPlayer.OnCompletionListener, ToneControl,
+		BackgroundAware {
 	private static final String TAG = MicroPlayer.class.getSimpleName();
 
 	protected final MediaPlayer player = new AndroidPlayer();
@@ -77,10 +78,41 @@ public class MicroPlayer extends BasePlayer implements MediaPlayer.OnCompletionL
 	}
 
 	public void doStart() {
+		if (Manager.isBackground()) {
+			// 后台期间游戏重新拉起播放：不出声，回前台再补 start()
+			suspended = true;
+			startedInBackground = true;
+			return;
+		}
 		player.start();
 	}
 
+	/** 后台挂起中：回前台需要补一次 start() */
+	private boolean suspended;
+	/** true 表示这次播放是"切到后台之后"才发起的，回前台不必再补 start */
+	private boolean startedInBackground;
+
+	public void onBackgroundChanged(boolean background) {
+		if (background) {
+			suspended = true;
+			try {
+				player.pause();
+			} catch (Throwable ignored) {
+			}
+		} else if (suspended) {
+			// 只要还处于挂起就恢复：游戏在后台里发起的播放也是它当前想要的状态
+			suspended = false;
+			startedInBackground = false;
+			try {
+				player.start();
+			} catch (Throwable ignored) {
+			}
+		}
+	}
+
 	public void doStop() {
+		suspended = false;          // 游戏自己停的，回前台不必补 start
+		startedInBackground = false;
 		player.pause();
 	}
 

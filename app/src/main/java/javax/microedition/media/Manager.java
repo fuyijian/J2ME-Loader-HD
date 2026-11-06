@@ -48,6 +48,48 @@ public class Manager {
 	private static final TimeBase DEFAULT_TIMEBASE = () -> System.nanoTime() / 1000L;
 	private static final List<Plugin> PLUGINS = new ArrayList<>();
 
+	/** 所有创建过的播放器（弱引用，关闭后自动回收） */
+	private static final java.util.WeakHashMap<Player, Boolean> TRACKED = new java.util.WeakHashMap<>();
+	/** 因切后台而被我们暂停的播放器，回前台时恢复 */
+	private static final java.util.ArrayList<Player> PAUSED_BY_US = new java.util.ArrayList<>();
+
+	private static Player track(Player player) {
+		if (player != null) {
+			synchronized (TRACKED) {
+				TRACKED.put(player, Boolean.TRUE);
+			}
+		}
+		return player;
+	}
+
+	/**
+	 * 应用切到后台/回前台时统一处理音频。
+	 * <p>
+	 * 背景：有些游戏没有按 MIDP 规范在 pauseApp() 里停音乐，切后台还在响。
+	 * 这里由模拟器直接把「正在播放」的播放器暂停掉，不依赖游戏自觉；
+	 * 回前台时再把被我们暂停的那些恢复（游戏自己停过的不会被误启动）。
+	 */
+	/** 应用是否处于后台：后台期间所有播放器「保持状态但不发声」，防止游戏自己把音乐重新拉起来 */
+	private static volatile boolean inBackground;
+
+	public static boolean isBackground() {
+		return inBackground;
+	}
+
+	public static void setBackground(boolean background) {
+		inBackground = background;
+		synchronized (TRACKED) {
+			for (Player player : new java.util.ArrayList<>(TRACKED.keySet())) {
+				try {
+					if (player instanceof BackgroundAware) {
+						((BackgroundAware) player).onBackgroundChanged(background);
+					}
+				} catch (Throwable ignored) {
+				}
+			}
+		}
+	}
+
 	public static Player createPlayer(String locator) throws IOException, MediaException {
 		if (locator == null) {
 			throw new IllegalArgumentException();
@@ -56,10 +98,10 @@ public class Manager {
 			for (Plugin plugin : PLUGINS) {
 				Player player = plugin.createPlayer(locator);
 				if (player != null) {
-					return player;
+					return track(player);
 				}
 			}
-			return new MicroPlayer(locator);
+			return track(new MicroPlayer(locator));
 		} else if (locator.startsWith(FILE_LOCATOR) || locator.startsWith(RESOURCE_LOCATOR)) {
 			InputStream stream = Connector.openInputStream(locator);
 			String extension = locator.substring(locator.lastIndexOf('.') + 1);
@@ -67,12 +109,12 @@ public class Manager {
 			return createPlayer(stream, type);
 		} else if (locator.startsWith(CAPTURE_AUDIO_LOCATOR) &&
 				ContextHolder.requestPermission(Manifest.permission.RECORD_AUDIO)) {
-			return new RecordPlayer();
+			return track(new RecordPlayer());
 		} else if ((locator.startsWith(CAPTURE_IMAGE_LOCATOR) || locator.startsWith(CAPTURE_VIDEO_LOCATOR)) &&
 				ContextHolder.requestPermission(Manifest.permission.CAMERA)) {
-			return new CameraPlayer();
+			return track(new CameraPlayer());
 		} else {
-			return new BasePlayer();
+			return track(new BasePlayer());
 		}
 	}
 
@@ -91,9 +133,9 @@ public class Manager {
 			SourceStream sourceStream = sourceStreams[0];
 			InputStream stream = new InternalSourceStream(sourceStream);
 			InternalDataSource datasource = new InternalDataSource(stream, type);
-			return new MicroPlayer(datasource);
+			return track(new MicroPlayer(datasource));
 		} else {
-			return new BasePlayer();
+			return track(new BasePlayer());
 		}
 	}
 
@@ -106,14 +148,14 @@ public class Manager {
 		for (Plugin plugin : PLUGINS) {
 			Player player = plugin.createPlayer(datasource);
 			if (player != null) {
-				return player;
+				return track(player);
 			}
 		}
 		String[] supportedTypes = getSupportedContentTypes(null);
 		if (type != null && Arrays.asList(supportedTypes).contains(type.toLowerCase())) {
-			return new MicroPlayer(datasource);
+			return track(new MicroPlayer(datasource));
 		} else {
-			return new BasePlayer();
+			return track(new BasePlayer());
 		}
 	}
 

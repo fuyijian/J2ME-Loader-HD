@@ -65,6 +65,16 @@ public class MainActivity extends AppCompatActivity {
 	@Override
 	public void onCreate(@Nullable Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
+		/*
+		 * 从桌面图标点开时，如果本页面不是任务根（说明上面还有游戏或配置页），
+		 * 直接结束自己，让用户回到原来的界面。
+		 * 之前是 launchMode=singleTask，点图标会把游戏等上方 Activity 全部结束，
+		 * 表现为「切出去再点图标，游戏就没了」。
+		 */
+		if (!isTaskRoot() && Intent.ACTION_MAIN.equals(getIntent().getAction())) {
+			finish();
+			return;
+		}
 		setContentView(R.layout.activity_main);
 		if (FileUtils.isExternalStorageLegacy()) {
 			permissionsLauncher.launch(STORAGE_PERMISSIONS);

@@ -47,7 +47,8 @@ import javax.microedition.media.tone.ToneSequence;
 import ru.woesss.j2me.mmapi.control.MIDIControlImpl;
 import ru.woesss.j2me.mmapi.protocol.device.DeviceMetaData;
 
-class SynthPlayer extends BasePlayer2 implements VolumeControl, PanControl, ToneControl {
+class SynthPlayer extends BasePlayer2 implements VolumeControl, PanControl, ToneControl,
+		javax.microedition.media.BackgroundAware {
 	private static final String TAG = SynthPlayer.class.getSimpleName();
 
 	private final ExecutorService callbackExecutor = Executors.newSingleThreadExecutor(r -> {
@@ -64,6 +65,10 @@ class SynthPlayer extends BasePlayer2 implements VolumeControl, PanControl, Tone
 
 	private Map<String, Control> controls;
 	private int state = UNREALIZED;
+	/** 后台挂起中：对游戏仍表现为 STARTED，但不真正发声 */
+	private boolean suspended;
+	/** true 表示这次播放是"切到后台之后"才发起的，回前台不必再补 start */
+	private boolean startedInBackground;
 	private int volume = 100;
 	private boolean mute;
 	private int pan;
@@ -126,6 +131,13 @@ class SynthPlayer extends BasePlayer2 implements VolumeControl, PanControl, Tone
 		prefetch();
 
 		if (state == PREFETCHED) {
+			if (javax.microedition.media.Manager.isBackground()) {
+				// 切后台期间游戏重新拉起播放：状态照常推进但不出声，回前台再真正播
+				suspended = true;
+				startedInBackground = true;
+				state = STARTED;
+				return;
+			}
 			library.start(handle);
 
 			state = STARTED;
@@ -140,7 +152,30 @@ class SynthPlayer extends BasePlayer2 implements VolumeControl, PanControl, Tone
 			library.pause(handle);
 
 			state = PREFETCHED;
+			suspended = false;          // 游戏自己停的，回前台不必补 start
+			startedInBackground = false;
 			postEvent(PlayerListener.STOPPED, getMediaTime());
+		}
+	}
+
+	/** 应用切前后台时由 Manager 调用：后台立即静音（保持 STARTED，游戏无感），回前台恢复 */
+	public void onBackgroundChanged(boolean background) {
+		if (background) {
+			if (state == STARTED) {
+				try {
+					library.pause(handle);
+				} catch (Throwable ignored) {
+				}
+				suspended = true;
+			}
+		} else if (suspended) {
+			// 只要还处于挂起就恢复：游戏在后台里发起的播放也是它当前想要的状态
+			suspended = false;
+			startedInBackground = false;
+			try {
+				library.start(handle);
+			} catch (Throwable ignored) {
+			}
 		}
 	}
 

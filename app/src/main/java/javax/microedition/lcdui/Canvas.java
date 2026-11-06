@@ -329,6 +329,7 @@ protected int getSupersamplingFactor() {
 
 	public void onDraw(android.graphics.Canvas canvas) {
 		if (graphicsMode != 2) return; // Fix for Android Pie
+		if (!visible) return;   // 切后台时不再重绘，省电省 CPU
 		CanvasWrapper g = canvasWrapper;
 		g.bind(canvas);
 		g.clear(backgroundColor);

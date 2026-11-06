@@ -208,6 +208,9 @@ public class MicroActivity extends AppCompatActivity {
 	public void onResume() {
 		super.onResume();
 		visible = true;
+		// 必须先解除后台标志：游戏在 resumeApp() 里会重新 start() 音乐，
+		// 若此时仍标记为后台，那次 start() 会被静音掉，导致回前台没有背景音乐。
+		javax.microedition.media.Manager.setBackground(false);
 		MidletThread.resumeApp();
 	}
 
@@ -216,6 +219,8 @@ public class MicroActivity extends AppCompatActivity {
 		visible = false;
 		hideSoftInput();
 		MidletThread.pauseApp();
+		// 有些游戏不遵守 MIDP 规范，pauseApp() 里不停止音乐；这里统一暂停所有在播的音频
+		javax.microedition.media.Manager.setBackground(true);
 		super.onPause();
 	}
 
