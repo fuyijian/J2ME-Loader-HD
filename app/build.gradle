@@ -20,7 +20,13 @@ android {
     defaultConfig {
         // 共存版：与官方版包名区分，可同时安装
         applicationId "ru.playsoftware.j2meloader.hd"
-        minSdk MIN_SDK
+        /*
+         * 主线固定使用 MIN_SDK（21）。下面的 legacy 是**旁路特供**：
+         *   ./gradlew assembleOpenRelease -PlegacyBuild=true   →  J2ME-Loader-HD-v<版本>-legacy.apk（minSdk 19）
+         * 仅用于给 Android 4.4 老机用户单独提供，不参与主线，也不随 GitHub Release 发布。
+         * 调研结论：oboe 最低 16、material 1.12 最低 19 → Android 4.0.4(API 15) 无法支持。
+         */
+        minSdk(project.hasProperty('legacyBuild') ? 19 : MIN_SDK)
         targetSdk TARGET_SDK
         versionCode 101
         versionName "1.8.2"
@@ -145,8 +151,10 @@ androidComponents {
         variant.outputs.each { output ->
             output.outputFileName.set(output.versionName.map { versionName ->
                 if (variant.buildType == 'release' && variant.flavorName != 'midlet') {
-                    // 发布包统一命名：J2ME-Loader-HD-v1.4.apk（与 Release tag 对应）
-                    return "J2ME-Loader-HD-v${hdReleaseVersion}.apk"
+                    // 发布包统一命名：J2ME-Loader-HD-v1.5.apk（与 Release tag 对应）
+                    // 低版本专用构建额外加 -legacy 后缀，避免与主线混淆
+                    def legacy = project.hasProperty('legacyBuild') ? '-legacy' : ''
+                    return "J2ME-Loader-HD-v${hdReleaseVersion}${legacy}.apk"
                 }
                 "${baseName}${versionName}-${variant.buildType}.apk"
                         .replaceAll('--+', '-').replaceAll(' +', '_')

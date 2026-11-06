@@ -7,7 +7,8 @@ android {
     namespace 'ru.playsoftware.j2meloader.dexlib'
 
     defaultConfig {
-        minSdk MIN_SDK
+        // 与 app 保持一致：仅 legacy 旁路构建时降到 19（主线恒为 MIN_SDK）
+        minSdk(project.hasProperty('legacyBuild') ? 19 : MIN_SDK)
         targetSdk TARGET_SDK
     }
 
