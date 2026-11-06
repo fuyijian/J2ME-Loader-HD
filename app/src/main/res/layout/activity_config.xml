@@ -583,6 +583,45 @@
                     android:textSize="12sp" />
             </LinearLayout>
 
+
+            <LinearLayout
+                android:id="@+id/font_file_container"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:layout_marginEnd="16dp"
+                android:minHeight="40dp"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@+id/render_scale_row">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:gravity="center_vertical"
+                    android:text="@string/PREF_FONT_FILE"
+                    android:textAppearance="?android:attr/textAppearanceSmall"
+                    android:textColor="?attr/textColorSecondary"
+                    android:textSize="15sp" />
+
+                <Spinner
+                    android:id="@+id/font_file_selector"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:textColor="?attr/textColorSecondary"
+                    android:textSize="15sp" />
+
+                <ImageButton
+                    android:id="@+id/browse_fonts"
+                    style="@style/ImageButtonStyle"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginStart="4dp"
+                    android:contentDescription="@string/browse"
+                    app:srcCompat="@drawable/ic_add" />
+            </LinearLayout>
+
         </androidx.constraintlayout.widget.ConstraintLayout><!-- Font -->
 
         <!-- Input -->

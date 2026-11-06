@@ -61,6 +61,10 @@ public class Font {
 
 	private static boolean antiAlias;
 
+	/** 自定义字体（来自游戏配置的"字体文件"），null = 系统默认 */
+	private static Typeface customFace;
+	private static String customFacePath;
+
 	final Paint paint = new Paint();
 	final float ascent;
 	final float descent;
@@ -88,6 +92,10 @@ public class Font {
 		}
 
 		paint.setColor(Color.BLACK);
+		if (customFace != null) {
+			family = customFace;
+		}
+
 		paint.setTypeface(Typeface.create(family, style & Typeface.BOLD_ITALIC));
 		paint.setAntiAlias(antiAlias);
 		paint.setStyle(Paint.Style.FILL);
@@ -200,6 +208,25 @@ public class Font {
 		sizes[2] = large;
 
 		Arrays.fill(fonts, null);
+
+		// 自定义字体：配置了就从工作目录 fonts/ 加载，失败自动退回系统默认
+		String fontFile = params.fontFile;
+		if (fontFile == null || fontFile.isEmpty()) {
+			customFace = null;
+			customFacePath = null;
+		} else {
+			java.io.File f = new java.io.File(
+					ru.playsoftware.j2meloader.config.Config.getFontsDir(), fontFile);
+			if (!f.getPath().equals(customFacePath)) {
+				customFacePath = f.getPath();
+				try {
+					customFace = Typeface.createFromFile(f);
+				} catch (Throwable t) {
+					customFace = null;
+					customFacePath = null;
+				}
+			}
+		}
 	}
 
 	private static int getFontSizeForResolution(int type, int size) {

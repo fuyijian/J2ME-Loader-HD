@@ -64,6 +64,11 @@
     <string name="PREF_SHOW_FPS">显示 FPS</string>
     <string name="PREF_FORCE_FULLSCREEN">强制全屏</string>
     <string name="PREF_LIMIT_FPS">限制 FPS</string>
+    <string name="fonts">字体</string>
+    <string name="load_from_file">从文件加载…</string>
+    <string name="PREF_FONT_FILE">字体文件</string>
+    <string name="pref_font_default">系统默认</string>
+    <string name="pref_screen_scale_type_integer">整数倍缩放（最清晰）</string>
     <string name="PREF_GAME_SPEED">游戏速度</string>
     <string name="game_speed_need_reimport">该游戏需长按图标重新安装一次才能加速</string>
     <string name="game_speed_inactive">（未启用）</string>

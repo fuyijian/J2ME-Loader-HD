@@ -59,6 +59,7 @@ public class Config {
 	public static final String SCREENSHOTS_DIR;
 	public static final String SHADERS_DIR = "/shaders/";
 	public static final String SOUNDBANKS_DIR = "/soundbanks/";
+	public static final String FONTS_DIR = "/fonts/";
 	public static final String APPS_DB_NAME = "/J2ME-apps.db";
 
 	private static String emulatorDir;
@@ -124,6 +125,9 @@ public class Config {
 
 	public static String getSoundbanksDir() {
 		return emulatorDir + SOUNDBANKS_DIR;
+	}
+	public static String getFontsDir() {
+		return emulatorDir + FONTS_DIR;
 	}
 
 	public static String getFsInternalDir() {

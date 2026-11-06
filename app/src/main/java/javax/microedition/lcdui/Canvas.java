@@ -484,6 +484,19 @@ protected int getSupersamplingFactor() {
 					scaleRatio = 100;
 				}
 				break;
+			case 3:
+				/*
+				 * 整数倍缩放（最清晰）：按最大整数倍放大，让每个游戏像素恰好对应屏幕上的
+				 * N×N 个物理像素，避免插值导致的模糊；剩余空间由背景色填充。
+				 * 与超采样配合时，AUTO 倍率会算出同一个 N，等于 1:1 映射。
+				 */
+				int intFactor = Math.min(displayWidth / width, scaledDisplayHeight / height);
+				if (intFactor < 1) {
+					intFactor = 1;
+				}
+				onWidth = width * intFactor;
+				onHeight = height * intFactor;
+				break;
 		}
 
 		onWidth = onWidth * scaleRatio / 100;

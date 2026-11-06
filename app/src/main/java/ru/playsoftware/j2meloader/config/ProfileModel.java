@@ -106,6 +106,8 @@ public class ProfileModel {
 
 	@SerializedName("FontAntiAlias")
 	public boolean fontAA;
+	/** 自定义字体文件名（位于工作目录 fonts/ 下）；null = 使用系统默认字体 */
+	public String fontFile;
 
 	/** 虚拟屏幕超采样倍率：0 = 自动（按屏幕分辨率），1 = 关闭，2..10 = 指定倍率。 */
 	@SerializedName("Supersampling")

@@ -52,6 +52,7 @@ public class ConfigFilesActivity extends AppCompatActivity {
 	protected enum FileType {
 		SHADERS,
 		SOUNDBANKS,
+		FONTS,
 	}
 
 	public static final String EXTRA_TYPE = "type";
@@ -77,6 +78,9 @@ public class ConfigFilesActivity extends AppCompatActivity {
 		if (type == FileType.SHADERS) {
 			setTitle(R.string.shaders);
 			path = Config.getShadersDir();
+		} else if (type == FileType.FONTS) {
+			setTitle(R.string.fonts);
+			path = Config.getFontsDir();
 		} else {
 			setTitle(R.string.soundbanks);
 			path = Config.getSoundbanksDir();

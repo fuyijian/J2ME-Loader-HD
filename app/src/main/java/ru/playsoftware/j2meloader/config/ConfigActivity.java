@@ -306,10 +306,13 @@ public class ConfigActivity extends AppCompatActivity implements View.OnClickLis
 		binding.keyboardOutlineColorHex.addTextChangedListener(
 				new ColorTextWatcher(binding.keyboardOutlineColorHex));
         initSoundBankSpinner();
+        initFontSpinner();
         binding.browseShaders.setOnClickListener(v ->
 				browseFiles(ConfigFilesActivity.FileType.SHADERS));
         binding.browseSoundbanks.setOnClickListener(v ->
 				browseFiles(ConfigFilesActivity.FileType.SOUNDBANKS));
+        binding.browseFonts.setOnClickListener(v ->
+				browseFiles(ConfigFilesActivity.FileType.FONTS));
     }
 
 	private void browseFiles(ConfigFilesActivity.FileType type) {
@@ -321,6 +324,30 @@ public class ConfigActivity extends AppCompatActivity implements View.OnClickLis
 			Toast.makeText(this, R.string.error_no_picker, Toast.LENGTH_SHORT).show();
 			Log.e(TAG, "Can't open files browser", e);
 		}
+	}
+
+	private void initFontSpinner() {
+		File dir = new File(workDir + Config.FONTS_DIR);
+		if (!dir.exists()) {
+			//noinspection ResultOfMethodCallIgnored
+			dir.mkdirs();
+		}
+		ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item);
+		adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+		binding.fontFileSelector.setAdapter(adapter);
+		adapter.add(getString(R.string.pref_font_default));
+		String[] files = dir.list((d, n) -> {
+			String lower = n.toLowerCase();
+			return new File(d, n).isFile()
+					&& (lower.endsWith(".ttf") || lower.endsWith(".otf") || lower.endsWith(".ttc"));
+		});
+		if (files != null) {
+			Arrays.sort(files, String.CASE_INSENSITIVE_ORDER);
+			adapter.addAll(files);
+		}
+		adapter.notifyDataSetChanged();
+		int position = params.fontFile == null ? 0 : adapter.getPosition(params.fontFile);
+		binding.fontFileSelector.setSelection(Math.max(position, 0));
 	}
 
 	private void initSoundBankSpinner() {
@@ -546,6 +573,10 @@ public class ConfigActivity extends AppCompatActivity implements View.OnClickLis
 		super.onResume();
 		if (needShow) {
 			loadParams(true);
+		}
+		// 从"字体目录"返回后刷新下拉列表，新导入的字体立即可选
+		if (binding != null) {
+			initFontSpinner();
 		}
 	}
 
@@ -798,6 +829,8 @@ public class ConfigActivity extends AppCompatActivity implements View.OnClickLis
 			}
 			params.soundBank = binding.soundbankSelector.getSelectedItemPosition() > 0 ? (String)
 					binding.soundbankSelector.getSelectedItem() : null;
+			params.fontFile = binding.fontFileSelector.getSelectedItemPosition() > 0 ? (String)
+					binding.fontFileSelector.getSelectedItem() : null;
 			params.systemProperties = getSystemProperties(binding.systemProperties.getText().toString());
 
 			ProfilesManager.saveConfig(params);
