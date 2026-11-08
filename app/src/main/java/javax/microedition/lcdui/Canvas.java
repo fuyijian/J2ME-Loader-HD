@@ -792,6 +792,8 @@ protected int getSupersamplingFactor() {
 	 * and the calling thread is blocked until it is completed.
 	 */
 	public final void serviceRepaints() {
+		// 后台时在帧边界挂住游戏线程，避免空转耗电；回前台自动继续
+		javax.microedition.media.Manager.awaitForeground();
 		Display.getEventQueue().serviceRepaints(paintEvent);
 	}
 

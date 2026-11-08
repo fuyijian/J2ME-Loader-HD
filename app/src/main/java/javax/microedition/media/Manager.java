@@ -76,8 +76,83 @@ public class Manager {
 		return inBackground;
 	}
 
+	/**
+	 * 游戏最后一次设定的音量（0~100）与静音状态。
+	 * <p>
+	 * 有些游戏把"音量调到 0"只作用在当时那个播放器上；回前台时游戏重建播放器，
+	 * 新播放器默认 100 → 音乐又响。新建播放器继承这里的值即可避免。
+	 */
+	private static volatile int lastLevel = 100;
+	private static volatile boolean lastMuted;
+
+	public static int getLastLevel() {
+		return lastLevel;
+	}
+
+	/**
+	 * 新建播放器时应当采用的初始音量。
+	 * <p>
+	 * 只继承**静音**（游戏把音量设成 0 或 mute）——这时新播放器若默认 100 会立刻出声；
+	 * 其它情况一律用默认 100，避免把"某个音效的 30%"继承给音乐，造成音量错乱。
+	 */
+	public static int getInheritedLevel() {
+		return (lastMuted || lastLevel <= 0) ? 0 : 100;
+	}
+
+	public static boolean isInheritedMute() {
+		return lastMuted || lastLevel <= 0;
+	}
+
+	public static void setLastLevel(int level) {
+		lastLevel = level;
+	}
+
+	public static boolean isLastMuted() {
+		return lastMuted;
+	}
+
+	public static void setLastMuted(boolean muted) {
+		lastMuted = muted;
+	}
+
+	/** 每个游戏启动时调用，避免上一款游戏的音量被继承过来 */
+	public static void resetVolumeMemory() {
+		lastLevel = 100;
+		lastMuted = false;
+	}
+
+	/** 游戏线程在帧边界等待"回到前台"，避免后台空转耗电 */
+	private static final Object BG_LOCK = new Object();
+
+	/**
+	 * 后台时阻塞调用线程，直到回到前台。
+	 * <p>
+	 * 在 Canvas.serviceRepaints / GameCanvas.flushGraphics 这类**帧边界**调用：
+	 * 此时游戏没有持有绘制相关的锁，挂住最安全，回前台后从下一帧继续。
+	 */
+	public static void awaitForeground() {
+		if (!inBackground) {
+			return;
+		}
+		synchronized (BG_LOCK) {
+			while (inBackground) {
+				try {
+					BG_LOCK.wait(500);
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+					return;
+				}
+			}
+		}
+	}
+
 	public static void setBackground(boolean background) {
 		inBackground = background;
+		if (!background) {
+			synchronized (BG_LOCK) {
+				BG_LOCK.notifyAll();
+			}
+		}
 		synchronized (TRACKED) {
 			for (Player player : new java.util.ArrayList<>(TRACKED.keySet())) {
 				try {

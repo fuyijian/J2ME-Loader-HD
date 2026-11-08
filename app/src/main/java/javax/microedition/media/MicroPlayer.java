@@ -79,44 +79,63 @@ public class MicroPlayer extends BasePlayer implements MediaPlayer.OnCompletionL
 
 	public void doStart() {
 		if (Manager.isBackground()) {
-			// 后台期间游戏重新拉起播放：不出声，回前台再补 start()
-			suspended = true;
-			startedInBackground = true;
+			// 后台期间游戏要播放：先不真正开始（省电），回前台再补 start
+			pendingStart = true;
 			return;
 		}
 		player.start();
 	}
 
-	/** 后台挂起中：回前台需要补一次 start() */
-	private boolean suspended;
-	/** true 表示这次播放是"切到后台之后"才发起的，回前台不必再补 start */
-	private boolean startedInBackground;
+	/** 因切后台被我们暂停的播放器，回前台要恢复（并重设音量） */
+	private boolean pausedByUs;
+	/** 后台期间游戏发起的播放：先不开始，等回前台再补 */
+	private boolean pendingStart;
 
+	/**
+	 * 最近一次设置的音量。回前台恢复播放后要重新应用；
+	 * 初值取自"游戏最后一次设定的音量"——游戏重建播放器时通常不会重设音量，
+	 * 若默认给 1.0 就会出现「游戏里调成 0，回来又有声」。
+	 */
+	private float lastLeft = Manager.getInheritedLevel() / 100f;
+	private float lastRight = lastLeft;
+
+	/**
+	 * 应用切前后台时由 Manager 调用。
+	 * <p>
+	 * 后台：真正 pause（省电），回前台恢复并重新应用游戏设定的音量
+	 *（MediaPlayer 重新开始后音量会回到默认，不补会让调成 0 的音量又响）。
+	 */
 	public void onBackgroundChanged(boolean background) {
 		if (background) {
-			suspended = true;
-			try {
-				player.pause();
-			} catch (Throwable ignored) {
+			// 只有「确实在播放」的才标记为我们暂停的；
+			// 否则回前台会把游戏已经停掉的播放器重新拉起来（表现为音乐莫名其妙又响）
+			if (state == STARTED) {
+				try {
+					player.pause();
+				} catch (Throwable ignored) {
+				}
+				pausedByUs = true;
 			}
-		} else if (suspended) {
-			// 只要还处于挂起就恢复：游戏在后台里发起的播放也是它当前想要的状态
-			suspended = false;
-			startedInBackground = false;
+		} else if (pausedByUs || pendingStart) {
+			pausedByUs = false;
+			pendingStart = false;
 			try {
 				player.start();
+				player.setVolume(lastLeft, lastRight);
 			} catch (Throwable ignored) {
 			}
 		}
 	}
 
 	public void doStop() {
-		suspended = false;          // 游戏自己停的，回前台不必补 start
-		startedInBackground = false;
+		pausedByUs = false;
+		pendingStart = false;
 		player.pause();
 	}
 
 	public void doClose() {
+		pausedByUs = false;
+		pendingStart = false;
 		player.release();
 		source.disconnect();
 	}
@@ -152,6 +171,9 @@ public class MicroPlayer extends BasePlayer implements MediaPlayer.OnCompletionL
 
 	@Override
 	public void doSetVolume(float left, float right) {
+		Manager.setLastLevel(Math.round(left * 100));
+		this.lastLeft = left;
+		this.lastRight = right;
 		player.setVolume(left, right);
 	}
 

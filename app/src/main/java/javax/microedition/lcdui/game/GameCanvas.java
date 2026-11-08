@@ -147,6 +147,8 @@ public class GameCanvas extends Canvas {
 
 	@SuppressWarnings("WeakerAccess")
 	public void flushGraphics(int x, int y, int width, int height) {
+		// 后台时挂住游戏线程（GameCanvas 游戏通常只调这个，不调 serviceRepaints）
+		javax.microedition.media.Manager.awaitForeground();
 		flushBuffer(image(), x, y, width, height);
 	}
 

@@ -65,10 +65,10 @@ class SynthPlayer extends BasePlayer2 implements VolumeControl, PanControl, Tone
 
 	private Map<String, Control> controls;
 	private int state = UNREALIZED;
-	/** 后台挂起中：对游戏仍表现为 STARTED，但不真正发声 */
-	private boolean suspended;
-	/** true 表示这次播放是"切到后台之后"才发起的，回前台不必再补 start */
-	private boolean startedInBackground;
+	/** 因切后台被我们暂停的播放器，回前台要恢复（并重设音量） */
+	private boolean pausedByUs;
+	/** 后台期间游戏发起的播放：先不开流，等回前台再真正开始 */
+	private boolean pendingStart;
 	private int volume = 100;
 	private boolean mute;
 	private int pan;
@@ -82,6 +82,9 @@ class SynthPlayer extends BasePlayer2 implements VolumeControl, PanControl, Tone
 		}
 		this.library = library;
 		this.dataSource = dataSource;
+		// 继承游戏上一次设定的音量：游戏重建播放器时不会重新应用音量（尤其调成 0 的情况）
+		this.volume = javax.microedition.media.Manager.getInheritedLevel();
+		this.mute = javax.microedition.media.Manager.isInheritedMute();
 		handle = library.createPlayer(locator);
 		library.setListener(handle, this);
 	}
@@ -132,9 +135,8 @@ class SynthPlayer extends BasePlayer2 implements VolumeControl, PanControl, Tone
 
 		if (state == PREFETCHED) {
 			if (javax.microedition.media.Manager.isBackground()) {
-				// 切后台期间游戏重新拉起播放：状态照常推进但不出声，回前台再真正播
-				suspended = true;
-				startedInBackground = true;
+				// 后台期间游戏要播放：先不开音频流（省电），回前台再真正开始
+				pendingStart = true;
 				state = STARTED;
 				return;
 			}
@@ -152,13 +154,19 @@ class SynthPlayer extends BasePlayer2 implements VolumeControl, PanControl, Tone
 			library.pause(handle);
 
 			state = PREFETCHED;
-			suspended = false;          // 游戏自己停的，回前台不必补 start
-			startedInBackground = false;
+			pausedByUs = false;
+			pendingStart = false;
 			postEvent(PlayerListener.STOPPED, getMediaTime());
 		}
 	}
 
-	/** 应用切前后台时由 Manager 调用：后台立即静音（保持 STARTED，游戏无感），回前台恢复 */
+	/**
+	 * 应用切前后台时由 Manager 调用。
+	 * <p>
+	 * 后台：真正 pause 音频流（不是只把音量调 0），让音频子系统停止唤醒；
+	 * 前台：恢复并**立刻重新应用游戏设定的音量**——原生 start() 会把增益重置为默认值，
+	 * 不补这一步会导致「游戏里调成 0 的音量，回前台又响了」。
+	 */
 	public void onBackgroundChanged(boolean background) {
 		if (background) {
 			if (state == STARTED) {
@@ -166,18 +174,31 @@ class SynthPlayer extends BasePlayer2 implements VolumeControl, PanControl, Tone
 					library.pause(handle);
 				} catch (Throwable ignored) {
 				}
-				suspended = true;
+				pausedByUs = true;
 			}
-		} else if (suspended) {
-			// 只要还处于挂起就恢复：游戏在后台里发起的播放也是它当前想要的状态
-			suspended = false;
-			startedInBackground = false;
+		} else if (pausedByUs || pendingStart) {
+			pausedByUs = false;
+			pendingStart = false;
 			try {
 				library.start(handle);
 			} catch (Throwable ignored) {
 			}
+			applyGain(true);
 		}
 	}
+
+	/** @param restore false=静音，true=恢复游戏设定的音量 */
+	private void applyGain(boolean restore) {
+		try {
+			if (!restore || mute || volume <= 0) {
+				library.setVolume(handle, 0, 0);
+			} else {
+				updateVolume();
+			}
+		} catch (Throwable ignored) {
+		}
+	}
+
 
 	@Override
 	public void deallocate() {
@@ -280,6 +301,7 @@ class SynthPlayer extends BasePlayer2 implements VolumeControl, PanControl, Tone
 			return;
 		}
 		this.mute = mute;
+		javax.microedition.media.Manager.setLastMuted(mute);
 		if (state == CLOSED) {
 			return;
 		}
@@ -307,6 +329,7 @@ class SynthPlayer extends BasePlayer2 implements VolumeControl, PanControl, Tone
 			return level;
 		}
 		volume = level;
+		javax.microedition.media.Manager.setLastLevel(level);
 		if (state == CLOSED) {
 			return level;
 		}

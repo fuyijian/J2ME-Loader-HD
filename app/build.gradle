@@ -8,7 +8,7 @@ plugins {
  * HD 分支的发布版本号：正式 Release 的 APK 统一命名为 J2ME-Loader-HD-v<此值>.apk，
  * 与 GitHub Release 的 tag 对应。每次发版只改这一行。
  */
-def hdReleaseVersion = '1.5'
+def hdReleaseVersion = '1.6'
 
 def midletArchivesBaseName
 

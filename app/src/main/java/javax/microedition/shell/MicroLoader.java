@@ -279,6 +279,7 @@ public class MicroLoader {
 			Canvas.setShowFps(params.showFps);
 			Canvas.setLimitFps(params.fpsLimit);
 
+			javax.microedition.media.Manager.resetVolumeMemory();
 			Font.applySettings(params);
 
 			KeyMapper.setKeyMapping(params);
