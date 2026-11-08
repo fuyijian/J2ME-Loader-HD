@@ -67,6 +67,8 @@ public class Render {
 
 	private Graphics targetGraphics;
 	private final Rect gClip = new Rect();
+	/** 超采样倍率：用于把裁剪区换算成物理像素 */
+	private int readbackScale = 1;
 	private final Rect clip = new Rect();
 	private boolean backCopied;
 	private final LinkedList<RenderNode> stack = new LinkedList<>();
@@ -132,13 +134,24 @@ public class Render {
 	public synchronized void bind(Graphics graphics) {
 		this.targetGraphics = graphics;
 		Canvas canvas = graphics.getCanvas();
-		int width = canvas.getWidth();
-		int height = canvas.getHeight();
+		/*
+		 * MC3D 把游戏的坐标按「1 单位 = 1 像素」直接画，如果 pbuffer 用超采样后的物理尺寸，
+		 * 内容会被整体放大 N 倍、左上角跑出画面。这里改为：**按逻辑尺寸渲染**，
+		 * 回读时再按倍率放大贴回物理位图（3D 本身仍是 1×，但 2D 文字/UI 依旧走超采样）。
+		 */
+		final int ps = Math.max(1, graphics.getPixelScale());
+		readbackScale = ps;
+		// 物理缓冲（超采样后）：渲染分辨率
+		final int pbW = canvas.getWidth();
+		final int pbH = canvas.getHeight();
+		// 逻辑尺寸：MC3D 的投影与精灵换算都按这个算，保证与 1× 时观感一致
+		int width = pbW / ps;
+		int height = pbH / ps;
 		if (eglContext == null) {
 			init();
 		}
 		EGL10 egl = (EGL10) EGLContext.getEGL();
-		if (env.width != width || env.height != height) {
+		if (env.pbWidth != pbW || env.pbHeight != pbH) {
 
 			if (eglWindowSurface != null) {
 				releaseEglContext();
@@ -146,28 +159,37 @@ public class Render {
 			}
 
 			int[] surface_attribs = {
-					EGL10.EGL_WIDTH, width,
-					EGL10.EGL_HEIGHT, height,
+					EGL10.EGL_WIDTH, pbW,
+					EGL10.EGL_HEIGHT, pbH,
 					EGL10.EGL_NONE};
 			eglWindowSurface = egl.eglCreatePbufferSurface(eglDisplay, eglConfig, surface_attribs);
 			egl.eglMakeCurrent(eglDisplay, eglWindowSurface, eglWindowSurface, eglContext);
 
-			glViewport(0, 0, width, height);
+			glViewport(0, 0, pbW, pbH);
 			Program.create();
-			env.width = width;
-			env.height = height;
+			env.pbWidth = pbW;
+			env.pbHeight = pbH;
 			glClearColor(0, 0, 0, 1);
 			glClear(GL_COLOR_BUFFER_BIT);
 		}
+		// 投影/精灵换算用的逻辑尺寸，每次绑定都同步（换游戏/换倍率都要更新）
+		env.width = width;
+		env.height = height;
 		egl.eglMakeCurrent(eglDisplay, eglWindowSurface, eglWindowSurface, eglContext);
 		Rect clip = this.clip;
 		canvas.getClipBounds(clip);
-		int l = clip.left;
-		int t = clip.top;
-		int r = clip.right;
-		int b = clip.bottom;
+		/*
+		 * 超采样：getClipBounds 给的是**逻辑坐标**，而 pbuffer 是按物理像素创建的
+		 * （canvas.getWidth() 已是 N 倍）。不换算的话 glScissor 只有 1/N 大小，
+		 * 3D 场景就只会渲染在左上角一小块里（MC3D 游戏黑屏/画面缩在角落的根因）。
+		 */
+		// 裁剪区按倍率换算成物理像素，与物理缓冲保持一致
+		int l = clip.left * ps;
+		int t = clip.top * ps;
+		int r = clip.right * ps;
+		int b = clip.bottom * ps;
 		gClip.set(l, t, r, b);
-		if (l == 0 && t == 0 && r == env.width && b == env.height) {
+		if (l == 0 && t == 0 && r == pbW && b == pbH) {
 			glDisable(GL_SCISSOR_TEST);
 		} else {
 			glEnable(GL_SCISSOR_TEST);
@@ -306,7 +328,12 @@ public class Render {
 		if (postCopy2D) {
 			targetImage.setHasAlpha(true);
 			Canvas canvas = new Canvas(targetImage);
-			canvas.clipRect(gClip);
+			if (readbackScale > 1) {
+				canvas.clipRect(gClip.left * readbackScale, gClip.top * readbackScale,
+						gClip.right * readbackScale, gClip.bottom * readbackScale);
+			} else {
+				canvas.clipRect(gClip);
+			}
 			canvas.drawColor(0, PorterDuff.Mode.SRC);
 			targetImage.setHasAlpha(false);
 		}
@@ -540,12 +567,21 @@ public class Render {
 			if (postCopy2D) {
 				copy2d(false);
 			}
-			Rect clip = this.gClip;
-			Utils.glReadPixels(clip.left, clip.top, clip.width(), clip.height(), targetGraphics.getBitmap());
+			readBackToTarget();
 			targetGraphics = null;
 		}
 		releaseEglContext();
 	}
+
+	/** 把 pbuffer 的 3D 结果贴回目标位图；超采样时先读到逻辑尺寸的临时位图再放大 */
+	private void readBackToTarget() {
+		Rect clip = this.gClip;
+		Bitmap target = targetGraphics.getBitmap();
+		// 3D 已按物理分辨率渲染，直接回读（不再需要 CPU 放大，文字也不会被降采样）
+		Utils.glReadPixels(clip.left, clip.top, clip.width(), clip.height(), target);
+		return;
+	}
+
 
 	public synchronized void flush() {
 		if (stack.isEmpty()) {
@@ -1450,8 +1486,7 @@ public class Render {
 			if (targetTexture != null) {
 				glReadPixels(0, 0, 256, 256, GL_RGBA, GL_UNSIGNED_BYTE, targetTexture.image.getRaster());
 			} else if (targetGraphics != null) {
-				Rect clip = this.gClip;
-				Utils.glReadPixels(clip.left, clip.top, clip.width(), clip.height(), targetGraphics.getBitmap());
+				readBackToTarget();
 			}
 		} finally {
 			stack.clear();
@@ -1470,8 +1505,10 @@ public class Render {
 		float[] matrices;
 		int centerX;
 		int centerY;
-		int width;
+		int width;      // 逻辑尺寸：投影矩阵/精灵像素换算都基于它
 		int height;
+		int pbWidth;    // 物理缓冲尺寸（= 逻辑 × 倍率）
+		int pbHeight;
 		int toonThreshold;
 		int toonHigh;
 		int toonLow;
