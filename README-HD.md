@@ -73,7 +73,11 @@ storePassword=your_store_password
 
 ## 已知限制
 
-- `Mascot Capsule` / 摩托罗拉 3D 渲染路径尚未验证（它们不直接读取位图尺寸，暂无适配点）
+- **`Mascot Capsule`（MC3D）已适配**：`Render.bind(Graphics)` 的 pbuffer / `glViewport` 用**物理尺寸**
+  （`canvas.getWidth()/getHeight()`）；但 `env.width/height` 必须保持**逻辑尺寸**——
+  投影矩阵里 `centerX/vw` 的归一化和精灵像素换算都基于它，改成物理尺寸会让画面偏移 N 倍。
+  裁剪区（`getClipBounds()` 返回逻辑坐标）要 × 倍率换算成物理像素；回读直接用物理矩形，不做 CPU 放大
+- 摩托罗拉 3D（`com.motorola.iden.micro3d`）走同一套实现，已随 MC3D 一起生效（待实机验证）
 - 超采样会显著增加填充量：建议开启「图形模式 → OpenGL ES」，把最终缩放交给 GPU
 - 通过「工作目录」切换目录后，游戏列表数据库位于该目录下，新目录需要重新导入游戏
 
