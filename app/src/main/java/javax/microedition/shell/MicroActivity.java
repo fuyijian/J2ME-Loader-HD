@@ -494,6 +494,8 @@ public class MicroActivity extends AppCompatActivity {
 			showSaveVkAlert(false);
 		} else if (id == R.id.action_layout_switch) {
 			showSetLayoutDialog();
+		} else if (id == R.id.action_keypad_skin) {
+			showKeypadSkinDialog();
 		} else if (id == R.id.action_hide_buttons) {
 			showHideButtonDialog();
 		}
@@ -529,6 +531,27 @@ public class MicroActivity extends AppCompatActivity {
 			e.printStackTrace();
 			Toast.makeText(this, R.string.error, Toast.LENGTH_SHORT).show();
 		}
+	}
+
+	/** 按键皮肤切换：暗色玻璃（默认）/ 原版配色 */
+	private void showKeypadSkinDialog() {
+		final int curSkin = javax.microedition.lcdui.keyboard.VirtualKeyboard.skinMode();
+		new AlertDialog.Builder(this)
+				.setTitle(R.string.keypad_skin)
+				.setSingleChoiceItems(R.array.pref_vk_skin_entries, curSkin, (d, which) -> {
+					javax.microedition.lcdui.keyboard.VirtualKeyboard.setSkinMode(which);
+					VirtualKeyboard vk = ContextHolder.getVk();
+					if (vk != null) {
+						// 皮肤变化后重新布局一次，让形状/透明度按新皮肤生效
+						vk.setLayout(vk.getLayout());
+					}
+					if (current instanceof Canvas) {
+						((Canvas) current).repaint();
+					}
+					d.dismiss();
+				})
+				.setNegativeButton(android.R.string.cancel, null)
+				.show();
 	}
 
 	private void showHideButtonDialog() {

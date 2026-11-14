@@ -46,6 +46,9 @@
                     android:id="@+id/action_layout_switch"
                     android:title="@string/layout_switch" />
                 <item
+                    android:id="@+id/action_keypad_skin"
+                    android:title="@string/keypad_skin" />
+                <item
                     android:id="@+id/action_hide_buttons"
                     android:title="@string/hide_buttons" />
             </menu>

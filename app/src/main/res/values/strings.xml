@@ -137,6 +137,11 @@
     <string name="pref_vk_type_numbers_arrows">Numbers &amp; arrows</string>
     <string name="pref_vk_type_phone">Phone</string>
     <string name="pref_vk_type_phone_arrows">Phone (arrows)</string>
+    <string name="keypad_skin">按键皮肤</string>
+    <string-array name="pref_vk_skin_entries">
+        <item>暗色玻璃（Mini 风格）</item>
+        <item>原版配色</item>
+    </string-array>
     <string name="PREF_LAYOUT">Layout</string>
     <string name="PREF_SHADER_FILTER">Shader:</string>
     <string name="browse">Browse</string>

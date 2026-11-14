@@ -227,6 +227,16 @@ protected int getSupersamplingFactor() {
 
 	static int mutableImageScale(int width, int height) {
 		int f = Math.max(1, mutableScale);
+		if (f <= 1) {
+			/*
+			 * 画布尚未创建时（游戏在静态初始化里就 new 了离屏缓冲，例如苍神录1），
+			 * mutableScale 还是 1 —— 此时必须按设置/屏幕倍率兜底，
+			 * 否则所有绘制（含文字）都在 1× 缓冲上完成，最后被放大，字必然发虚。
+			 */
+			f = supersampling > 1 ? supersampling
+					: Math.max(1, Math.round((float) ContextHolder.getDisplayWidth() / Math.max(1, width)));
+			f = Math.min(f, MAX_SUPERSAMPLING);
+		}
 		while (f > 1 && (long) width * height * f * f > MAX_SUPERSAMPLING_PIXELS) {
 			f--;
 		}

@@ -904,6 +904,26 @@ public class VirtualKeyboard implements Overlay, Runnable {
 		return keySize;
 	}
 
+	/** 按键皮肤：0 = 暗色玻璃（默认），1 = 原版配色 */
+	public static int skinMode() {
+		try {
+			return android.preference.PreferenceManager
+					.getDefaultSharedPreferences(ContextHolder.getActivity())
+					.getInt("vk_skin", 0);
+		} catch (Throwable t) {
+			return 0;
+		}
+	}
+
+	public static void setSkinMode(int mode) {
+		try {
+			android.preference.PreferenceManager
+					.getDefaultSharedPreferences(ContextHolder.getActivity())
+					.edit().putInt("vk_skin", mode).apply();
+		} catch (Throwable ignored) {
+		}
+	}
+
 	@Override
 	public void paint(CanvasWrapper g) {
 		if (visible) {
@@ -1235,17 +1255,26 @@ public class VirtualKeyboard implements Overlay, Runnable {
 		void paint(CanvasWrapper g) {
 			int bgColor;
 			int fgColor;
-			if (selected) {
-				bgColor = settings.vkBgColorSelected;
-				fgColor = settings.vkFgColorSelected;
+			int outlineColor;
+			if (skinMode() == 0) {
+				// 暗色玻璃皮肤：所有键统一深灰底 + 细边框，按下时描边转青
+				bgColor = selected ? 0x2B333D : 0x171A1F;
+				fgColor = selected ? 0xFFFFFF : 0xE6E9EE;
+				outlineColor = selected ? 0x4FD0D8 : 0x2B3038;
 			} else {
-				bgColor = settings.vkBgColor;
-				fgColor = settings.vkFgColor;
+				if (selected) {
+					bgColor = settings.vkBgColorSelected;
+					fgColor = settings.vkFgColorSelected;
+				} else {
+					bgColor = settings.vkBgColor;
+					fgColor = settings.vkFgColor;
+				}
+				outlineColor = settings.vkOutlineColor;
 			}
-			int alpha = (opaque || layoutEditMode != LAYOUT_EOF ? 0xFF : settings.vkAlpha) << 24;
+			int alpha = (opaque || layoutEditMode != LAYOUT_EOF ? 0xFF : Math.max(settings.vkAlpha, 0xC0)) << 24;
 			g.setFillColor(alpha | bgColor);
 			g.setTextColor(alpha | fgColor);
-			g.setDrawColor(alpha | settings.vkOutlineColor);
+			g.setDrawColor(alpha | outlineColor);
 
 			switch (settings.vkButtonShape) {
 				case ROUND_RECT_SHAPE:
