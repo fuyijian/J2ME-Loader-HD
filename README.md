@@ -37,6 +37,7 @@ Android 上的 J2ME（Java 手机游戏）模拟器，基于 [nikita36078/J2ME-L
 | └ MC3D 的 3D 画面也走超采样 | ✅ | ❌ | ❌ |
 | 背景皮肤 skins / 一键移植 APK | ❌ | ❌ | ✅ |
 | 安装现代 JDK 编译的移植游戏 | ✅ | ❌ | 视版本 |
+| 前端一键启动（Daijishou 等） | ✅ | ❌ | ✅ |
 
 > 最后一项：现代 JDK 编译的移植游戏（class 版本 ≥ 52）在官方版上会报 `Dexing error`
 > （`SimException: stack: overflow`），本分支已在 `dexlib` 中修复；反过来，Java 1.1 时代的老游戏
@@ -73,6 +74,10 @@ Android 上的 J2ME（Java 手机游戏）模拟器，基于 [nikita36078/J2ME-L
 13. **修复部分游戏文字不吃超采样**：有些游戏在类静态初始化时就分配离屏缓冲，
    那时画布还没建立、倍率仍为 1，导致文字在 1× 上渲染后被放大。
    现在这类缓冲会按配置的超采样倍率分配，文字恢复清晰。
+
+14. **前端一键启动**：通过 `ACTION_VIEW` 打开 jar 时，若与已安装的 jar **内容完全一致**
+   （MD5 相同），直接进游戏，不再弹"是否重新安装"；内容有变动仍会询问。
+   适配 Daijishou 这类前端，平台配置见 [docs/daijishou/JavaMe.json](docs/daijishou/JavaMe.json)。
 
 实现细节与完整的适配清单见 [README-HD.md](README-HD.md)。
 
@@ -112,6 +117,14 @@ Android 上的 J2ME（Java 手机游戏）模拟器，基于 [nikita36078/J2ME-L
 - 游戏里自己把音乐关掉的，回来**不会**被重新打开
 - 少数游戏在 `resumeApp()` 里重建播放器，回来会从第一个音符重放——这是 MIDP 的常规写法
   （暂停时释放、恢复时重建），模拟器无法保留播放进度
+
+**用前端（Daijishou）启动**
+
+1. Daijishou → 设定 → 平台 → 新增平台 → 匯入 → 选 [docs/daijishou/JavaMe.json](docs/daijishou/JavaMe.json)
+2. 给 Java Me 平台指定放 jar 的文件夹，点同步
+3. 启动游戏时选播放器 **`j2me - J2ME Loader HD`**
+
+之后如果同一个 jar 再点一次，会**直接进游戏**；jar 内容变了才会问是否重装。
 
 ## 六、构建
 
