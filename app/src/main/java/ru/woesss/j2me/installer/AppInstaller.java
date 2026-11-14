@@ -61,6 +61,8 @@ public class AppInstaller {
 	static final int STATUS_UNMATCHED = 3;
 	static final int STATUS_NEED_JAD = 4;
 	static final int STATUS_SUCCESS = 5;
+	/** 与已安装的 jar 内容完全一致 → 直接启动，不弹任何对话框（前端一键启动需要） */
+	static final int STATUS_SAME = 6;
 
 	private final int id;
 	private final Application context;
@@ -393,7 +395,37 @@ public class AppInstaller {
 		}
 		appDirName = currentApp.getPath();
 		targetDir = new File(Config.getAppDir(), appDirName);
-		return newDesc.compareVersion(currentApp.getVersion());
+		int version = newDesc.compareVersion(currentApp.getVersion());
+		if (version == STATUS_EQUAL && srcJar != null && srcJar.isFile() && isSameJar(srcJar,
+				new File(currentApp.getPathExt() + Config.MIDLET_RES_FILE))) {
+			// 内容一模一样：视为"已安装"，上层直接启动游戏
+			return STATUS_SAME;
+		}
+		return version;
+	}
+
+	/** 两个 jar 的 MD5 是否一致（内容完全相同） */
+	private static boolean isSameJar(File a, File b) {
+		if (!b.isFile() || a.length() != b.length()) {
+			return false;
+		}
+		try {
+			return Arrays.equals(md5(a), md5(b));
+		} catch (Exception e) {
+			return false;
+		}
+	}
+
+	private static byte[] md5(File file) throws Exception {
+		java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
+		try (java.io.InputStream in = new java.io.FileInputStream(file)) {
+			byte[] buf = new byte[8192];
+			int len;
+			while ((len = in.read(buf)) > 0) {
+				md.update(buf, 0, len);
+			}
+		}
+		return md.digest();
 	}
 
 	private void generatePathName(String name) {

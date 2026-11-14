@@ -272,6 +272,15 @@ public class InstallerDialog extends DialogFragment {
 		Descriptor nd = installer.getNewDescriptor();
 		SpannableStringBuilder message;
 		switch (status) {
+			case AppInstaller.STATUS_SAME: {
+				// 完全相同的 jar 再次打开：直接进游戏（前端一键启动）
+				installer.clearCache();
+				installer.deleteTemp();
+				AppItem app = installer.getExistsApp();
+				Config.startApp(requireContext(), app.getTitle(), app.getPathExt(), false);
+				dismissAllowingStateLoss();
+				return;
+			}
 			case AppInstaller.STATUS_NEW:
 				if (installer.getJar() != null) {
 					convert();
